@@ -2,16 +2,17 @@
 #include <chrono>
 #include <iomanip>
 #include <sstream>
+#include "windows_threading.h"
 
 LogLevel Logger::current_level_ = LogLevel::INFO;
 std::string Logger::log_file_;
 std::ofstream Logger::file_stream_;
-std::mutex Logger::log_mutex_;
+mutex_type Logger::log_mutex_;
 
 void Logger::init(const std::string& level, const std::string& file, 
                  const std::string& format) {
     
-    std::lock_guard<std::mutex> lock(log_mutex_);
+    lock_guard_type<mutex_type> lock(log_mutex_);
     
     // Установка уровня логирования
     current_level_ = string_to_level(level);
@@ -38,15 +39,15 @@ void Logger::warning(const std::string& message) {
 }
 
 void Logger::error(const std::string& message) {
-    log(LogLevel::ERROR, message);
+    log(LogLevel::ERROR_LEVEL, message);
 }
 
 void Logger::debug(const std::string& message) {
-    log(LogLevel::DEBUG, message);
+    log(LogLevel::DEBUG_LEVEL, message);
 }
 
 void Logger::set_level(const std::string& level) {
-    std::lock_guard<std::mutex> lock(log_mutex_);
+    lock_guard_type<mutex_type> lock(log_mutex_);
     current_level_ = string_to_level(level);
 }
 
@@ -55,14 +56,14 @@ void Logger::log(LogLevel level, const std::string& message) {
         return;
     }
     
-    std::lock_guard<std::mutex> lock(log_mutex_);
+    lock_guard_type<mutex_type> lock(log_mutex_);
     
     std::string timestamp = get_timestamp();
     std::string level_str = level_to_string(level);
     std::string log_line = timestamp + " [" + level_str + "] " + message;
     
     // Вывод в консоль
-    if (level >= LogLevel::ERROR) {
+    if (level >= LogLevel::ERROR_LEVEL) {
         std::cerr << log_line << std::endl;
     } else {
         std::cout << log_line << std::endl;
@@ -77,10 +78,10 @@ void Logger::log(LogLevel level, const std::string& message) {
 
 LogLevel Logger::string_to_level(const std::string& level) {
     if (level == "TRACE") return LogLevel::TRACE;
-    if (level == "DEBUG") return LogLevel::DEBUG;
+    if (level == "DEBUG") return LogLevel::DEBUG_LEVEL;
     if (level == "INFO") return LogLevel::INFO;
     if (level == "WARN" || level == "WARNING") return LogLevel::WARNING;
-    if (level == "ERROR") return LogLevel::ERROR;
+    if (level == "ERROR") return LogLevel::ERROR_LEVEL;
     if (level == "CRITICAL") return LogLevel::CRITICAL;
     if (level == "OFF") return LogLevel::OFF;
     
@@ -90,10 +91,10 @@ LogLevel Logger::string_to_level(const std::string& level) {
 std::string Logger::level_to_string(LogLevel level) {
     switch (level) {
         case LogLevel::TRACE: return "TRACE";
-        case LogLevel::DEBUG: return "DEBUG";
+        case LogLevel::DEBUG_LEVEL: return "DEBUG";
         case LogLevel::INFO: return "INFO";
         case LogLevel::WARNING: return "WARN";
-        case LogLevel::ERROR: return "ERROR";
+        case LogLevel::ERROR_LEVEL: return "ERROR";
         case LogLevel::CRITICAL: return "CRIT";
         case LogLevel::OFF: return "OFF";
     }

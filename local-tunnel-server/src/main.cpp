@@ -63,7 +63,7 @@ int main(int argc, char* argv[]) {
         
         // Главный цикл
         while (proxy_server.is_running() && tunnel_server.is_running()) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            sleep_ms(1000);  // Используем кросс-платформенную версию
             
             // Вывод статистики каждые 30 секунд
             static int counter = 0;

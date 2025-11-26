@@ -47,15 +47,16 @@ bool VPNServer::start() {
 
     // Создание серверного сокета
     server_socket_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_socket_ < 0) {
-        Logger::error("Не удалось создать серверный сокет");
+    if (server_socket_ == INVALID_SOCKET) {
+        int error = get_last_socket_error();
+        Logger::error("Не удалось создать серверный сокет: " + std::to_string(error));
         return false;
     }
 
     // Настройка сокета для повторного использования адреса
-    int opt = 1;
-    if (setsockopt(server_socket_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        Logger::error("Не удалось настроить SO_REUSEADDR");
+    if (set_socket_reuse(server_socket_) != 0) {
+        int error = get_last_socket_error();
+        Logger::error("Не удалось настроить SO_REUSEADDR: " + std::to_string(error));
         close(server_socket_);
         return false;
     }
@@ -68,7 +69,7 @@ bool VPNServer::start() {
     if (config_.get_server_host() == "0.0.0.0") {
         server_addr.sin_addr.s_addr = INADDR_ANY;
     } else {
-        if (inet_pton(AF_INET, config_.get_server_host().c_str(), &server_addr.sin_addr) <= 0) {
+        if (inet_pton_compat(AF_INET, config_.get_server_host().c_str(), &server_addr.sin_addr) <= 0) {
             Logger::error("Некорректный IP адрес сервера: " + config_.get_server_host());
             close(server_socket_);
             return false;
@@ -76,16 +77,19 @@ bool VPNServer::start() {
     }
 
     // Привязка сокета к адресу
-    if (bind(server_socket_, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr)) < 0) {
+    if (bind(server_socket_, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr)) != 0) {
+        int error = get_last_socket_error();
         Logger::error("Не удалось привязать сокет к адресу " + 
-                     config_.get_server_host() + ":" + std::to_string(config_.get_server_port()));
+                     config_.get_server_host() + ":" + std::to_string(config_.get_server_port()) +
+                     ", ошибка: " + std::to_string(error));
         close(server_socket_);
         return false;
     }
 
     // Начало прослушивания
-    if (listen(server_socket_, config_.get_max_connections()) < 0) {
-        Logger::error("Не удалось начать прослушивание сокета");
+    if (listen(server_socket_, config_.get_max_connections()) != 0) {
+        int error = get_last_socket_error();
+        Logger::error("Не удалось начать прослушивание сокета: " + std::to_string(error));
         close(server_socket_);
         return false;
     }
@@ -93,7 +97,7 @@ bool VPNServer::start() {
     running_.store(true);
     
     // Запуск серверного потока
-    server_thread_ = std::make_unique<std::thread>(&VPNServer::server_loop, this);
+    server_thread_ = threading::make_unique_thread(&VPNServer::server_loop, this);
 
     Logger::info("VPN сервер запущен на " + config_.get_server_host() + 
                 ":" + std::to_string(config_.get_server_port()));
@@ -112,9 +116,9 @@ void VPNServer::stop() {
     running_.store(false);
 
     // Закрытие серверного сокета
-    if (server_socket_ >= 0) {
+    if (server_socket_ != INVALID_SOCKET) {
         close(server_socket_);
-        server_socket_ = -1;
+        server_socket_ = INVALID_SOCKET;
     }
 
     // Ожидание завершения серверного потока
@@ -124,7 +128,7 @@ void VPNServer::stop() {
 
     // Закрытие всех клиентских соединений
     {
-        std::lock_guard<std::mutex> lock(clients_mutex_);
+        lock_guard_type<mutex_type> lock(clients_mutex_);
         for (auto& client : clients_) {
             client->stop();
         }
@@ -148,12 +152,13 @@ void VPNServer::server_loop() {
         int ready = select(server_socket_ + 1, &read_fds, nullptr, nullptr, &timeout);
         
         if (ready < 0) {
-            if (errno == EINTR) {
+            int error = get_last_socket_error();
+            if (is_temporary_error(error)) {
                 Logger::info("Получен сигнал прерывания");
                 break;
             }
             if (running_.load()) {
-                Logger::error("Ошибка select: " + std::string(strerror(errno)));
+                Logger::error("Ошибка select: " + std::to_string(error));
             }
             continue;
         }
@@ -172,16 +177,17 @@ void VPNServer::server_loop() {
         socklen_t client_len = sizeof(client_addr);
 
         // Принятие нового соединения
-        int client_socket = accept(server_socket_, 
+        SOCKET client_socket = accept(server_socket_, 
                                   reinterpret_cast<sockaddr*>(&client_addr), 
                                   &client_len);
 
-        if (client_socket < 0) {
-            if (errno == EINTR || errno == EWOULDBLOCK) {
+        if (client_socket == INVALID_SOCKET) {
+            int error = get_last_socket_error();
+            if (is_temporary_error(error)) {
                 continue;
             }
             if (running_.load()) {
-                Logger::error("Ошибка при принятии соединения: " + std::string(strerror(errno)));
+                Logger::error("Ошибка при принятии соединения: " + std::to_string(error));
             }
             continue;
         }
@@ -204,14 +210,14 @@ void VPNServer::server_loop() {
     Logger::info("Выход из основного цикла сервера");
 }
 
-void VPNServer::handle_client_connection(int client_socket, 
+void VPNServer::handle_client_connection(SOCKET client_socket, 
                                        const std::string& client_ip, 
                                        int client_port) {
     
     try {
         // Проверка лимита соединений
         {
-            std::lock_guard<std::mutex> lock(clients_mutex_);
+            lock_guard_type<mutex_type> lock(clients_mutex_);
             if (static_cast<int>(clients_.size()) >= config_.get_max_connections()) {
                 Logger::warning("Достигнут лимит соединений, отклонение клиента " + 
                                client_ip + ":" + std::to_string(client_port));
@@ -221,12 +227,12 @@ void VPNServer::handle_client_connection(int client_socket,
         }
 
         // Создание обработчика для клиента
-        auto handler = std::make_shared<ProxyHandler>(client_socket, client_ip, client_port, config_);
+        auto handler = std::make_shared<ProxyHandler>(static_cast<int>(client_socket), client_ip, client_port, config_);
         
         // Запуск обработчика
         if (handler->start()) {
             // Добавление в список активных клиентов только если запуск успешен
-            std::lock_guard<std::mutex> lock(clients_mutex_);
+            lock_guard_type<mutex_type> lock(clients_mutex_);
             clients_.push_back(handler);
         } else {
             Logger::error("Не удалось запустить обработчик для клиента " + 
@@ -243,7 +249,7 @@ void VPNServer::handle_client_connection(int client_socket,
 }
 
 void VPNServer::cleanup_finished_clients() {
-    std::lock_guard<std::mutex> lock(clients_mutex_);
+    lock_guard_type<mutex_type> lock(clients_mutex_);
     
     auto it = clients_.begin();
     while (it != clients_.end()) {
@@ -262,7 +268,7 @@ void VPNServer::cleanup_finished_clients() {
 }
 
 VPNServer::ServerStatus VPNServer::get_status() const {
-    std::lock_guard<std::mutex> lock(clients_mutex_);
+    lock_guard_type<mutex_type> lock(clients_mutex_);
     
     return ServerStatus{
         running_.load(),

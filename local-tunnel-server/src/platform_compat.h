@@ -8,10 +8,16 @@
 
 #ifdef _WIN32
     // Windows headers
+    #define WIN32_LEAN_AND_MEAN
     #include <winsock2.h>
     #include <ws2tcpip.h>
     #include <windows.h>
     #include <io.h>
+    
+    // Thread and mutex for Windows (MinGW compatibility)
+    #include <thread>
+    #include <mutex>
+    #include <chrono>
     
     // Windows socket timeout compatibility
     inline int setsockopt_compat(SOCKET s, int level, int optname, const void* optval, int optlen) {
@@ -34,10 +40,45 @@
     #define EINTR WSAEINTR
     #endif
     
-    // Thread compatibility
-    #include <thread>
-    #include <mutex>
+    // Network functions
+    inline int inet_pton_compat(int af, const char* src, void* dst) {
+        struct sockaddr_storage ss;
+        int size = sizeof(ss);
+        char src_copy[INET6_ADDRSTRLEN+1];
+        
+        if (strlen(src) >= INET6_ADDRSTRLEN+1) return 0;
+        strcpy(src_copy, src);
+        
+        if (WSAStringToAddressA(src_copy, af, NULL, (struct sockaddr*)&ss, &size) == 0) {
+            if (af == AF_INET) {
+                *(struct in_addr*)dst = ((struct sockaddr_in*)&ss)->sin_addr;
+                return 1;
+            }
+        }
+        return 0;
+    }
+    #define inet_pton inet_pton_compat
     
+    inline const char* inet_ntop_compat(int af, const void* src, char* dst, socklen_t size) {
+        struct sockaddr_storage ss;
+        DWORD len = size;
+        
+        memset(&ss, 0, sizeof(ss));
+        ss.ss_family = af;
+        
+        if (af == AF_INET) {
+            ((struct sockaddr_in*)&ss)->sin_addr = *(struct in_addr*)src;
+        } else {
+            return NULL;
+        }
+        
+        if (WSAAddressToStringA((struct sockaddr*)&ss, sizeof(ss), NULL, dst, &len) == 0) {
+            return dst;
+        }
+        return NULL;
+    }
+    #define inet_ntop inet_ntop_compat
+
 #else
     // Unix/Linux headers  
     #include <sys/socket.h>
@@ -49,6 +90,7 @@
     #include <errno.h>
     #include <thread>
     #include <mutex>
+    #include <chrono>
     
     // Unix socket compatibility
     typedef int SOCKET;
@@ -103,13 +145,16 @@ inline bool is_temporary_error(int error) {
 /**
  * inet_pton для Windows совместимости
  */
-inline int inet_pton_compat(int af, const char* src, void* dst) {
+inline int inet_pton_windows(int af, const char* src, void* dst) {
 #ifdef _WIN32
     struct sockaddr_storage ss;
     int size = sizeof(ss);
     char src_copy[INET6_ADDRSTRLEN+1];
-    strncpy(src_copy, src, INET6_ADDRSTRLEN+1);
-    if (WSAStringToAddress(src_copy, af, NULL, (struct sockaddr*)&ss, &size) == 0) {
+    
+    if (strlen(src) >= INET6_ADDRSTRLEN+1) return 0;
+    strcpy(src_copy, src);
+    
+    if (WSAStringToAddressA(src_copy, af, NULL, (struct sockaddr*)&ss, &size) == 0) {
         if (af == AF_INET) {
             *(struct in_addr*)dst = ((struct sockaddr_in*)&ss)->sin_addr;
             return 1;
@@ -122,7 +167,9 @@ inline int inet_pton_compat(int af, const char* src, void* dst) {
 }
 
 #ifdef _WIN32
-#define inet_pton inet_pton_compat
+#define inet_pton_compat inet_pton_windows
+#else
+#define inet_pton_compat inet_pton
 #endif
 
 /**
@@ -133,6 +180,38 @@ inline void sleep_ms(int ms) {
     Sleep(ms);
 #else
     usleep(ms * 1000);
+#endif
+}
+
+/**
+ * Совместимая функция setsockopt для таймаутов
+ */
+inline int set_socket_timeout(SOCKET sock, int timeout_sec) {
+#ifdef _WIN32
+    DWORD timeout = timeout_sec * 1000;
+    int ret1 = setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+    int ret2 = setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
+    return (ret1 == 0 && ret2 == 0) ? 0 : -1;
+#else
+    struct timeval timeout;
+    timeout.tv_sec = timeout_sec;
+    timeout.tv_usec = 0;
+    int ret1 = setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    int ret2 = setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    return (ret1 == 0 && ret2 == 0) ? 0 : -1;
+#endif
+}
+
+/**
+ * Совместимая функция для SO_REUSEADDR
+ */
+inline int set_socket_reuse(SOCKET sock) {
+#ifdef _WIN32
+    BOOL opt = TRUE;
+    return setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+#else
+    int opt = 1;
+    return setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 #endif
 }
 

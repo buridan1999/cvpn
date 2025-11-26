@@ -7,7 +7,8 @@
 #include <thread>
 #include "config.h"
 #include "encryption_manager.h"
-#include <thread>
+#include "platform_compat.h"
+#include "windows_threading.h"
 
 class ProxyHandler {
 public:
@@ -30,9 +31,9 @@ private:
     bool is_http_connect_{false};
     std::string original_http_request_;
     
-    // Сокеты
-    int client_socket_{-1};
-    int tunnel_socket_{-1}; // Изменено: подключаемся к туннелю вместо цели
+    // Сокеты (используем кросс-платформенный тип)
+    SOCKET client_socket_{INVALID_SOCKET};
+    SOCKET tunnel_socket_{INVALID_SOCKET}; // Изменено: подключаемся к туннелю вместо цели
     
     // Информация о клиенте
     std::string client_ip_;
@@ -42,7 +43,7 @@ private:
     const Config& config_;
     
     // Потоки для передачи данных
-    std::unique_ptr<std::thread> handler_thread_;
+    std::unique_ptr<thread_type> handler_thread_;
     
     // Внутренние методы
     void handle();
@@ -64,9 +65,9 @@ private:
     void send_http_response(bool success);
     void forward_http_request();
     void start_data_transfer();
-    void transfer_data(int source_socket, int destination_socket, 
+    void transfer_data(SOCKET source_socket, SOCKET destination_socket, 
                       const std::string& direction);
-    ssize_t recv_exact(int socket, void* buffer, size_t size);
+    ssize_t recv_exact(SOCKET socket, void* buffer, size_t size);
     
     // Запрет копирования
     ProxyHandler(const ProxyHandler&) = delete;

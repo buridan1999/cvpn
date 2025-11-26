@@ -2,11 +2,11 @@
 #define TUNNEL_SERVER_H
 
 #include "config.h"
+#include "platform_compat.h"
+#include "windows_threading.h"
 #include <memory>
-#include <thread>
 #include <atomic>
 #include <vector>
-#include <mutex>
 #include <string>
 
 // Форвард декларация
@@ -31,7 +31,7 @@ public:
 
 private:
     void server_loop();
-    void handle_tunnel_connection(int tunnel_socket, const std::string& client_ip, int client_port);
+    void handle_tunnel_connection(SOCKET tunnel_socket, const std::string& client_ip, int client_port);
     void cleanup_finished_tunnels();
 
     static void signal_handler(int signal);
@@ -40,11 +40,11 @@ private:
     const Config& config_;
     std::atomic<bool> running_{false};
     
-    int server_socket_{-1};
-    std::unique_ptr<std::thread> server_thread_;
+    SOCKET server_socket_{INVALID_SOCKET};
+    std::unique_ptr<thread_type> server_thread_;
     
     std::vector<std::shared_ptr<TunnelHandler>> tunnels_;
-    mutable std::mutex tunnels_mutex_;
+    mutable mutex_type tunnels_mutex_;
 };
 
 #endif // TUNNEL_SERVER_H

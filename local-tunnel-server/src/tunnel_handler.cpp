@@ -41,7 +41,7 @@ bool TunnelHandler::start() {
     }
 
     running_.store(true);
-    handler_thread_ = std::make_unique<std::thread>(&TunnelHandler::handle, this);
+    handler_thread_ = threading::make_unique_thread(&TunnelHandler::handle, this);
     
     return true;
 }
@@ -277,10 +277,10 @@ void TunnelHandler::start_data_transfer(const std::vector<char>& initial_data) {
     }
     
     // Запускаем потоки для двунаправленной передачи
-    to_target_thread_ = std::make_unique<std::thread>(
+    to_target_thread_ = threading::make_unique_thread(
         &TunnelHandler::transfer_data_to_target, this, tunnel_socket_, target_socket_);
     
-    from_target_thread_ = std::make_unique<std::thread>(
+    from_target_thread_ = threading::make_unique_thread(
         &TunnelHandler::transfer_data_from_target, this, target_socket_, tunnel_socket_);
     
     // Ожидаем завершения любого из потоков

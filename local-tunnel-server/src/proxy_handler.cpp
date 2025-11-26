@@ -12,16 +12,11 @@
 
 ProxyHandler::ProxyHandler(int client_socket, const std::string& client_ip,
                           int client_port, const Config& config)
-    : client_socket_(client_socket), client_ip_(client_ip),
+    : client_socket_(static_cast<SOCKET>(client_socket)), client_ip_(client_ip),
       client_port_(client_port), config_(config) {
     
     // Настройка таймаута для клиентского сокета
-    struct timeval timeout;
-    timeout.tv_sec = config_.get_timeout();
-    timeout.tv_usec = 0;
-    
-    setsockopt(client_socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(client_socket_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    set_socket_timeout(client_socket_, config_.get_timeout());
     
     // Инициализация менеджера шифрования
     std::string key = config_.get_encryption_key();
@@ -49,7 +44,7 @@ bool ProxyHandler::start() {
     running_.store(true);
     
     // Запуск основного потока обработчика
-    handler_thread_ = std::make_unique<std::thread>(&ProxyHandler::handle, this);
+    handler_thread_ = threading::make_unique_thread(&ProxyHandler::handle, this);
     
     return true;
 }
@@ -58,14 +53,14 @@ void ProxyHandler::stop() {
     running_.store(false);
 
     // Простое закрытие сокетов
-    if (client_socket_ >= 0) {
+    if (client_socket_ != INVALID_SOCKET) {
         close(client_socket_);
-        client_socket_ = -1;
+        client_socket_ = INVALID_SOCKET;
     }
     
-    if (tunnel_socket_ >= 0) {
+    if (tunnel_socket_ != INVALID_SOCKET) {
         close(tunnel_socket_);
-        tunnel_socket_ = -1;
+        tunnel_socket_ = INVALID_SOCKET;
     }
 
     // Ожидание завершения основного потока
@@ -116,7 +111,7 @@ void ProxyHandler::handle() {
 bool ProxyHandler::get_target_info(std::string& target_host, int& target_port) {
     try {
         // Проверяем валидность сокета
-        if (client_socket_ < 0) {
+        if (client_socket_ == INVALID_SOCKET) {
             Logger::error("Клиентский сокет не валиден");
             return false;
         }
@@ -147,7 +142,8 @@ bool ProxyHandler::get_target_info(std::string& target_host, int& target_port) {
                 if (received == 0) {
                     Logger::info("Соединение закрыто клиентом при чтении заголовка");
                 } else {
-                    Logger::error("Ошибка чтения данных: " + std::string(strerror(errno)));
+                    int error = get_last_socket_error();
+                    Logger::error("Ошибка чтения данных: " + std::to_string(error));
                 }
                 return false;
             }
@@ -191,7 +187,7 @@ bool ProxyHandler::get_target_info(std::string& target_host, int& target_port) {
     }
 }
 
-ssize_t ProxyHandler::recv_exact(int socket, void* buffer, size_t size) {
+ssize_t ProxyHandler::recv_exact(SOCKET socket, void* buffer, size_t size) {
     size_t total_received = 0;
     char* buf = static_cast<char*>(buffer);
 
@@ -202,7 +198,8 @@ ssize_t ProxyHandler::recv_exact(int socket, void* buffer, size_t size) {
             if (received == 0) {
                 Logger::info("Соединение закрыто клиентом");
             } else {
-                Logger::error("Ошибка при получении данных: " + std::string(strerror(errno)));
+                int error = get_last_socket_error();
+                Logger::error("Ошибка при получении данных: " + std::to_string(error));
             }
             return received;
         }
@@ -218,18 +215,14 @@ bool ProxyHandler::connect_to_tunnel(const std::string& target_host, int target_
     
     // Создание сокета для туннеля
     tunnel_socket_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (tunnel_socket_ < 0) {
-        Logger::error("Не удалось создать сокет для туннеля: " + std::string(strerror(errno)));
+    if (tunnel_socket_ == INVALID_SOCKET) {
+        int error = get_last_socket_error();
+        Logger::error("Не удалось создать сокет для туннеля: " + std::to_string(error));
         return false;
     }
 
     // Настройка таймаута
-    struct timeval timeout;
-    timeout.tv_sec = 10;
-    timeout.tv_usec = 0;
-    
-    setsockopt(tunnel_socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(tunnel_socket_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    set_socket_timeout(tunnel_socket_, 10);
 
     // Подключение к туннельному серверу
     sockaddr_in tunnel_addr{};
@@ -247,10 +240,11 @@ bool ProxyHandler::connect_to_tunnel(const std::string& target_host, int target_
                 ":" + std::to_string(config_.get_tunnel_port()));
 
     if (connect(tunnel_socket_, reinterpret_cast<sockaddr*>(&tunnel_addr), 
-                sizeof(tunnel_addr)) < 0) {
-        Logger::error("Не удалось подключиться к туннелю: " + std::string(strerror(errno)));
+                sizeof(tunnel_addr)) != 0) {
+        int error = get_last_socket_error();
+        Logger::error("Не удалось подключиться к туннелю: " + std::to_string(error));
         close(tunnel_socket_);
-        tunnel_socket_ = -1;
+        tunnel_socket_ = INVALID_SOCKET;
         return false;
     }
 
@@ -355,7 +349,7 @@ void ProxyHandler::start_data_transfer() {
     Logger::info("Передача данных завершена");
 }
 
-void ProxyHandler::transfer_data(int source_socket, int destination_socket,
+void ProxyHandler::transfer_data(SOCKET source_socket, SOCKET destination_socket,
                                 const std::string& direction) {
     std::vector<char> buffer(config_.get_buffer_size());
     size_t total_bytes = 0;

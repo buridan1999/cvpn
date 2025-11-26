@@ -1,10 +1,10 @@
 #ifndef TUNNEL_HANDLER_H
 #define TUNNEL_HANDLER_H
 
+#include "windows_threading.h"
 #include "config.h"
 #include "encryption_manager.h"
 #include <memory>
-#include <thread>
 #include <atomic>
 #include <string>
 #include <vector>
@@ -43,9 +43,9 @@ private:
     int target_socket_{-1};
     std::atomic<bool> running_{false};
     
-    std::unique_ptr<std::thread> handler_thread_;
-    std::unique_ptr<std::thread> to_target_thread_;
-    std::unique_ptr<std::thread> from_target_thread_;
+    std::unique_ptr<thread_type> handler_thread_;
+    std::unique_ptr<thread_type> to_target_thread_;
+    std::unique_ptr<thread_type> from_target_thread_;
 };
 
 #endif // TUNNEL_HANDLER_H
