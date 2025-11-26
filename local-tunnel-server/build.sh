@@ -2,7 +2,7 @@
 
 # Скрипт для сборки проекта
 
-echo "=== Сборка Custom VPN Server ==="
+echo "=== Сборка Local Tunnel Server ==="
 
 # Создание директории сборки
 mkdir -p build
@@ -17,11 +17,11 @@ make -j$(nproc)
 
 if [ $? -eq 0 ]; then
     echo "✅ Сборка успешно завершена!"
-    echo "Исполняемый файл: ./build/custom-vpn"
+    echo "Исполняемый файл: ./build/local-tunnel-server"
     echo ""
     echo "Для запуска выполните:"
     echo "  cd build"
-    echo "  ./custom-vpn"
+    echo "  ./local-tunnel-server"
 else
     echo "❌ Ошибка при сборке!"
     exit 1
