@@ -1,0 +1,19 @@
+{
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "max_connections": 100,
+        "buffer_size": 4096,
+        "timeout": 30
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "vpn_server.log",
+        "format": "%(asctime)s - %(levelname)s - %(message)s"
+    },
+    "authentication": {
+        "enabled": false,
+        "username": "admin",
+        "password": "password123"
+    }
+}

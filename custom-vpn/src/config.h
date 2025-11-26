@@ -1,0 +1,56 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#include <string>
+
+class Config {
+public:
+    explicit Config(const std::string& config_file = "config.json");
+    
+    // Геттеры для серверных настроек
+    std::string get_server_host() const { return server_host_; }
+    int get_server_port() const { return server_port_; }
+    int get_max_connections() const { return max_connections_; }
+    int get_buffer_size() const { return buffer_size_; }
+    int get_timeout() const { return timeout_; }
+    
+    // Геттеры для настроек логирования
+    std::string get_log_level() const { return log_level_; }
+    std::string get_log_file() const { return log_file_; }
+    std::string get_log_format() const { return log_format_; }
+    
+    // Геттеры для аутентификации
+    bool is_auth_enabled() const { return auth_enabled_; }
+    std::string get_username() const { return username_; }
+    std::string get_password() const { return password_; }
+    
+    // Перезагрузка конфигурации
+    bool reload();
+    
+private:
+    std::string config_file_;
+    
+    // Серверные настройки
+    std::string server_host_;
+    int server_port_;
+    int max_connections_;
+    int buffer_size_;
+    int timeout_;
+    
+    // Настройки логирования
+    std::string log_level_;
+    std::string log_file_;
+    std::string log_format_;
+    
+    // Настройки аутентификации
+    bool auth_enabled_;
+    std::string username_;
+    std::string password_;
+    
+    // Загрузка конфигурации
+    void load_config();
+    void set_defaults();
+    bool parse_json_file();
+};
+
+#endif // CONFIG_H

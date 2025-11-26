@@ -1,0 +1,661 @@
+#include "proxy_handler.h"
+#include "logger.h"
+#include "utils.h"
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <sys/select.h>
+#include <cstring>
+#include <cstdint>
+#include <netdb.h>
+#include <sstream>
+#include <vector>
+#include <cerrno>
+#include <netdb.h>
+#include <chrono>
+#include <thread>
+
+ProxyHandler::ProxyHandler(int client_socket, const std::string& client_ip,
+                          int client_port, const Config& config)
+    : client_socket_(client_socket), client_ip_(client_ip),
+      client_port_(client_port), config_(config) {
+    
+    // Настройка таймаута для клиентского сокета
+    struct timeval timeout;
+    timeout.tv_sec = config_.get_timeout();
+    timeout.tv_usec = 0;
+    
+    setsockopt(client_socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(client_socket_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+}
+
+ProxyHandler::~ProxyHandler() noexcept {
+    try {
+        stop();
+    } catch (...) {
+        // Игнорируем исключения в деструкторе
+    }
+}
+
+bool ProxyHandler::start() {
+    if (running_.load()) {
+        return false;
+    }
+
+    running_.store(true);
+    
+    // Запуск основного потока обработчика
+    handler_thread_ = std::make_unique<std::thread>(&ProxyHandler::handle, this);
+    
+    return true;
+}
+
+void ProxyHandler::stop() {
+    running_.store(false);
+
+    // Простое закрытие сокетов
+    if (client_socket_ >= 0) {
+        close(client_socket_);
+        client_socket_ = -1;
+    }
+    
+    if (target_socket_ >= 0) {
+        close(target_socket_);
+        target_socket_ = -1;
+    }
+
+    // Ожидание завершения основного потока
+    if (handler_thread_ && handler_thread_->joinable()) {
+        handler_thread_->join();
+    }
+}
+
+void ProxyHandler::handle() {
+    std::string target_host;
+    int target_port;
+    
+    if (!get_target_info(target_host, target_port)) {
+        Logger::error("Не удалось получить информацию о целевом сервере от " + 
+                     client_ip_ + ":" + std::to_string(client_port_));
+        return;
+    }
+
+    if (!connect_to_target(target_host, target_port)) {
+        Logger::error("Не удалось подключиться к " + target_host + 
+                     ":" + std::to_string(target_port));
+        send_connection_response(false);
+        return;
+    }
+
+    Logger::info("Установлен прокси туннель: " + client_ip_ + 
+                ":" + std::to_string(client_port_) + 
+                " -> " + target_host + ":" + std::to_string(target_port));
+
+    send_connection_response(true);
+
+    if (!is_http_connect_) {
+        forward_http_request();
+    }
+
+    start_data_transfer();
+    
+    running_.store(false);
+}
+
+bool ProxyHandler::get_target_info(std::string& target_host, int& target_port) {
+    try {
+        // Проверяем валидность сокета
+        if (client_socket_ < 0) {
+            Logger::error("Клиентский сокет не валиден");
+            return false;
+        }
+
+        // Читаем первую строку для определения протокола
+        std::string first_line;
+        char buffer[1024];
+        int pos = 0;
+        
+        // Читаем символ за символом до \r\n с таймаутом
+        while (pos < sizeof(buffer) - 1) {
+            fd_set read_fds;
+            FD_ZERO(&read_fds);
+            FD_SET(client_socket_, &read_fds);
+            
+            struct timeval timeout;
+            timeout.tv_sec = 5;  // 5 секунд на чтение заголовка
+            timeout.tv_usec = 0;
+            
+            int ready = select(client_socket_ + 1, &read_fds, nullptr, nullptr, &timeout);
+            if (ready <= 0) {
+                Logger::error("Таймаут или ошибка при чтении заголовка");
+                return false;
+            }
+            
+            ssize_t received = recv(client_socket_, &buffer[pos], 1, 0);
+            if (received <= 0) {
+                if (received == 0) {
+                    Logger::info("Соединение закрыто клиентом при чтении заголовка");
+                } else {
+                    Logger::error("Ошибка чтения данных: " + std::string(strerror(errno)));
+                }
+                return false;
+            }
+            
+            if (buffer[pos] == '\n') {
+                if (pos > 0 && buffer[pos-1] == '\r') {
+                    buffer[pos-1] = '\0'; // Убираем \r\n
+                    first_line = std::string(buffer);
+                    break;
+                }
+            }
+            pos++;
+        }
+        
+        if (first_line.empty()) {
+            Logger::warning("Получена пустая первая строка");
+            return false;
+        }
+        
+        Logger::info("Получена первая строка: " + first_line);
+        
+        // Проверяем тип HTTP запроса
+        if (first_line.find("CONNECT ") == 0) {
+            return parse_http_connect(first_line, target_host, target_port);
+        } else if (first_line.find("GET ") == 0 || first_line.find("POST ") == 0 || 
+                  first_line.find("PUT ") == 0 || first_line.find("DELETE ") == 0) {
+            return parse_http_request(first_line, target_host, target_port);
+        } else {
+            // Предполагаем, что это наш бинарный протокол
+            // Но первые байты уже прочитаны как строка, поэтому нужно их обработать
+            return parse_binary_protocol_from_buffer(buffer, pos + 1, target_host, target_port);
+        }
+
+    } catch (const std::exception& e) {
+        Logger::error("Ошибка при получении информации о целевом сервере: " + 
+                     std::string(e.what()));
+        return false;
+    } catch (...) {
+        Logger::error("Неизвестная ошибка при получении информации о целевом сервере");
+        return false;
+    }
+}
+
+ssize_t ProxyHandler::recv_exact(int socket, void* buffer, size_t size) {
+    size_t total_received = 0;
+    char* buf = static_cast<char*>(buffer);
+
+    while (total_received < size && running_.load()) {
+        ssize_t received = recv(socket, buf + total_received, size - total_received, 0);
+        
+        if (received <= 0) {
+            if (received == 0) {
+                Logger::info("Соединение закрыто клиентом");
+            } else {
+                Logger::error("Ошибка при получении данных: " + std::string(strerror(errno)));
+            }
+            return received;
+        }
+        
+        total_received += received;
+    }
+
+    return total_received;
+}
+
+bool ProxyHandler::connect_to_target(const std::string& host, int port) {
+    Logger::info("Подключение к " + host + ":" + std::to_string(port));
+    
+    // Создание сокета для целевого сервера
+    target_socket_ = socket(AF_INET, SOCK_STREAM, 0);
+    if (target_socket_ < 0) {
+        Logger::error("Не удалось создать сокет для целевого сервера: " + std::string(strerror(errno)));
+        return false;
+    }
+
+    // Настройка таймаута
+    struct timeval timeout;
+    timeout.tv_sec = 10;  // Увеличиваем таймаут до 10 секунд
+    timeout.tv_usec = 0;
+    
+    setsockopt(target_socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(target_socket_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
+    // Настройка адреса целевого сервера
+    sockaddr_in target_addr{};
+    target_addr.sin_family = AF_INET;
+    target_addr.sin_port = htons(port);
+
+    // Попытка интерпретировать как IP адрес
+    if (inet_pton(AF_INET, host.c_str(), &target_addr.sin_addr) > 0) {
+        Logger::info("Используется IP адрес: " + host);
+    } else {
+        // Если не IP адрес, то резолвим доменное имя
+        Logger::info("Резолвим домен: " + host);
+        struct hostent* host_entry = gethostbyname(host.c_str());
+        if (!host_entry) {
+            Logger::error("Ошибка DNS резолва для " + host + ": " + std::string(hstrerror(h_errno)));
+            close(target_socket_);
+            target_socket_ = -1;
+            return false;
+        }
+        
+        // Получаем первый IP адрес
+        char* ip_str = inet_ntoa(*((struct in_addr*)host_entry->h_addr_list[0]));
+        Logger::info("DNS резолв: " + host + " -> " + std::string(ip_str));
+        
+        // Копируем первый IP адрес
+        memcpy(&target_addr.sin_addr, host_entry->h_addr_list[0], host_entry->h_length);
+    }
+
+    Logger::info("Попытка подключения...");
+    // Подключение к целевому серверу
+    if (connect(target_socket_, reinterpret_cast<sockaddr*>(&target_addr), 
+                sizeof(target_addr)) < 0) {
+        Logger::error("Не удалось подключиться к " + host + ":" + 
+                     std::to_string(port) + " - " + strerror(errno));
+        close(target_socket_);
+        target_socket_ = -1;
+        return false;
+    }
+
+    Logger::info("Успешно подключились к " + host + ":" + std::to_string(port));
+    return true;
+}
+
+void ProxyHandler::send_connection_response(bool success) {
+    try {
+        if (is_http_connect_) {
+            // Для CONNECT запросов отправляем HTTP ответ
+            send_http_response(success);
+        } else if (!success) {
+            // Для обычных HTTP запросов отправляем ошибку только при неудаче
+            std::string error_response = "HTTP/1.1 502 Bad Gateway\r\n"
+                                       "Content-Type: text/html\r\n"
+                                       "Content-Length: 54\r\n"
+                                       "\r\n"
+                                       "<html><body><h1>502 Bad Gateway</h1></body></html>";
+            send(client_socket_, error_response.c_str(), error_response.length(), 0);
+        }
+        // Для обычных HTTP запросов при успехе не отправляем ответ здесь - 
+        // данные будут переданы напрямую от целевого сервера
+    } catch (const std::exception& e) {
+        Logger::error("Ошибка при отправке ответа клиенту: " + std::string(e.what()));
+    }
+}
+
+void ProxyHandler::start_data_transfer() {
+    Logger::info("Начинаем передачу данных");
+    
+    fd_set read_fds;
+    char buffer[4096];
+    
+    while (running_.load()) {
+        FD_ZERO(&read_fds);
+        FD_SET(client_socket_, &read_fds);
+        FD_SET(target_socket_, &read_fds);
+        
+        int max_fd = std::max(client_socket_, target_socket_);
+        
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+        
+        int ready = select(max_fd + 1, &read_fds, nullptr, nullptr, &timeout);
+        
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            Logger::error("Ошибка select: " + std::string(strerror(errno)));
+            break;
+        }
+        
+        if (ready == 0) continue;
+        
+        // Передача от клиента к серверу
+        if (FD_ISSET(client_socket_, &read_fds)) {
+            ssize_t received = recv(client_socket_, buffer, sizeof(buffer), 0);
+            if (received <= 0) {
+                if (received < 0) {
+                    Logger::error("Ошибка чтения от клиента: " + std::string(strerror(errno)));
+                } else {
+                    Logger::info("Клиент закрыл соединение");
+                }
+                break;
+            }
+            
+            if (send(target_socket_, buffer, received, 0) != received) {
+                Logger::error("Ошибка отправки к серверу");
+                break;
+            }
+        }
+        
+        // Передача от сервера к клиенту  
+        if (FD_ISSET(target_socket_, &read_fds)) {
+            ssize_t received = recv(target_socket_, buffer, sizeof(buffer), 0);
+            if (received <= 0) {
+                if (received < 0) {
+                    Logger::error("Ошибка чтения от сервера: " + std::string(strerror(errno)));
+                } else {
+                    Logger::info("Сервер закрыл соединение");
+                }
+                break;
+            }
+            
+            if (send(client_socket_, buffer, received, 0) != received) {
+                Logger::error("Ошибка отправки к клиенту");
+                break;
+            }
+        }
+    }
+    
+    Logger::info("Передача данных завершена");
+}
+
+void ProxyHandler::transfer_data(int source_socket, int destination_socket,
+                                const std::string& direction) {
+    std::vector<char> buffer(config_.get_buffer_size());
+    size_t total_bytes = 0;
+    
+    try {
+        while (running_.load()) {
+            // Проверяем валидность сокетов
+            if (source_socket < 0 || destination_socket < 0) {
+                Logger::info("Недопустимые сокеты в " + direction);
+                break;
+            }
+
+            // Использование select для неблокирующего чтения
+            fd_set read_fds;
+            FD_ZERO(&read_fds);
+            FD_SET(source_socket, &read_fds);
+
+            struct timeval timeout;
+            timeout.tv_sec = 1;
+            timeout.tv_usec = 0;
+
+            int ready = select(source_socket + 1, &read_fds, nullptr, nullptr, &timeout);
+            
+            if (ready < 0) {
+                if (errno == EINTR) {
+                    continue; // Прерывание, продолжаем
+                }
+                Logger::error("Ошибка select в передаче данных (" + direction + "): " + 
+                             strerror(errno));
+                break;
+            }
+            
+            if (ready == 0) {
+                continue; // Таймаут
+            }
+
+            if (!FD_ISSET(source_socket, &read_fds)) {
+                continue;
+            }
+
+            // Получение данных
+            ssize_t bytes_received = recv(source_socket, buffer.data(), buffer.size(), 0);
+            
+            if (bytes_received <= 0) {
+                if (bytes_received == 0) {
+                    Logger::info("Соединение закрыто (" + direction + ")");
+                } else if (errno != ECONNRESET && errno != EPIPE) {
+                    Logger::error("Ошибка при получении данных (" + direction + "): " + 
+                                 strerror(errno));
+                }
+                break;
+            }
+
+            // Отправка данных с проверкой частичной передачи
+            ssize_t bytes_sent = 0;
+            while (bytes_sent < bytes_received && running_.load()) {
+                ssize_t sent = send(destination_socket, 
+                                   buffer.data() + bytes_sent,
+                                   bytes_received - bytes_sent, 0);
+                
+                if (sent <= 0) {
+                    if (errno != ECONNRESET && errno != EPIPE && errno != ENOTCONN) {
+                        Logger::error("Ошибка при отправке данных (" + direction + "): " + 
+                                     strerror(errno));
+                    }
+                    running_.store(false);
+                    return;
+                }
+                
+                bytes_sent += sent;
+            }
+            
+            total_bytes += bytes_received;
+        }
+
+    } catch (const std::exception& e) {
+        Logger::error("Критическая ошибка в передаче данных (" + direction + "): " + 
+                     std::string(e.what()));
+    } catch (...) {
+        Logger::error("Неизвестная ошибка в передаче данных (" + direction + ")");
+    }
+    
+    Logger::info(direction + ": передано " + std::to_string(total_bytes) + " байт");
+    Logger::info("Передача данных завершена (" + direction + ")");
+    running_.store(false);
+}
+
+bool ProxyHandler::parse_http_connect(const std::string& connect_line, std::string& target_host, int& target_port) {
+    try {
+        // Парсим строку вида "CONNECT example.com:80 HTTP/1.1"
+        std::istringstream iss(connect_line);
+        std::string method, target, version;
+        
+        if (!(iss >> method >> target >> version)) {
+            Logger::error("Неверный формат CONNECT запроса: " + connect_line);
+            return false;
+        }
+        
+        if (method != "CONNECT") {
+            Logger::error("Ожидался метод CONNECT, получен: " + method);
+            return false;
+        }
+        
+        // Парсим target_host:target_port
+        size_t colon_pos = target.find(':');
+        if (colon_pos == std::string::npos) {
+            Logger::error("Не найден порт в CONNECT запросе: " + target);
+            return false;
+        }
+        
+        target_host = target.substr(0, colon_pos);
+        try {
+            target_port = std::stoi(target.substr(colon_pos + 1));
+        } catch (const std::exception& e) {
+            Logger::error("Неверный порт в CONNECT запросе: " + target);
+            return false;
+        }
+        
+        is_http_connect_ = true;
+        
+        // Пропускаем остальные заголовки HTTP до пустой строки
+        std::string line;
+        char buffer[1024];
+        int pos = 0;
+        
+        while (running_.load()) {
+            pos = 0;
+            while (pos < sizeof(buffer) - 1) {
+                ssize_t received = recv(client_socket_, &buffer[pos], 1, 0);
+                if (received <= 0) {
+                    if (received == 0) {
+                        Logger::info("Соединение закрыто при чтении заголовков HTTP");
+                    } else {
+                        Logger::error("Ошибка чтения заголовков: " + std::string(strerror(errno)));
+                    }
+                    return false;
+                }
+                
+                if (buffer[pos] == '\n') {
+                    if (pos > 0 && buffer[pos-1] == '\r') {
+                        buffer[pos-1] = '\0';
+                        line = std::string(buffer);
+                        break;
+                    } else {
+                        buffer[pos] = '\0';
+                        line = std::string(buffer);
+                        break;
+                    }
+                }
+                pos++;
+            }
+            
+            // Пустая строка означает конец заголовков
+            if (line.empty()) {
+                break;
+            }
+        }
+        
+        return true;
+        
+    } catch (const std::exception& e) {
+        Logger::error("Исключение в parse_http_connect: " + std::string(e.what()));
+        return false;
+    } catch (...) {
+        Logger::error("Неизвестное исключение в parse_http_connect");
+        return false;
+    }
+}
+
+bool ProxyHandler::parse_binary_protocol_from_buffer(char* buffer, int buffer_size, 
+                                                    std::string& target_host, int& target_port) {
+    // Это сложно, так как мы уже прочитали часть данных как строку
+    // Для простоты вернем false - браузеры не используют наш бинарный протокол
+    Logger::warning("Получен неизвестный протокол, ожидался HTTP CONNECT");
+    return false;
+}
+
+bool ProxyHandler::parse_http_request(const std::string& request_line, std::string& target_host, int& target_port) {
+    // Парсим строку вида "GET http://example.com/path HTTP/1.1"
+    std::istringstream iss(request_line);
+    std::string method, url, version;
+    
+    if (!(iss >> method >> url >> version)) {
+        Logger::error("Неверный формат HTTP запроса: " + request_line);
+        return false;
+    }
+    
+    Logger::info("Получен HTTP " + method + " запрос к " + url);
+    
+    // Убираем протокол из URL
+    std::string target_url = url;
+    bool is_https = false;
+    std::string path = "/";
+    
+    if (target_url.find("https://") == 0) {
+        target_url = target_url.substr(8); // Убираем "https://"
+        is_https = true;
+        target_port = 443; // Порт по умолчанию для HTTPS
+    } else if (target_url.find("http://") == 0) {
+        target_url = target_url.substr(7); // Убираем "http://"
+        target_port = 80; // Порт по умолчанию для HTTP
+    } else {
+        Logger::error("Неподдерживаемый протокол в URL: " + url);
+        return false;
+    }
+    
+    // Находим хост, порт и путь
+    size_t path_pos = target_url.find('/');
+    std::string host_port;
+    if (path_pos != std::string::npos) {
+        host_port = target_url.substr(0, path_pos);
+        path = target_url.substr(path_pos);
+    } else {
+        host_port = target_url;
+    }
+    
+    size_t colon_pos = host_port.find(':');
+    if (colon_pos != std::string::npos) {
+        target_host = host_port.substr(0, colon_pos);
+        try {
+            target_port = std::stoi(host_port.substr(colon_pos + 1));
+        } catch (const std::exception& e) {
+            Logger::error("Неверный порт в URL: " + host_port);
+            return false;
+        }
+    } else {
+        target_host = host_port;
+        // target_port уже установлен выше (80 или 443)
+    }
+    
+    // Формируем исходный HTTP запрос с относительным путем
+    original_http_request_ = method + " " + path + " " + version + "\r\n";
+    
+    is_http_connect_ = false; // Это обычный HTTP запрос, не CONNECT
+    
+    // Читаем и сохраняем остальные заголовки HTTP
+    std::string line;
+    char buffer[1024];
+    int pos = 0;
+    
+    while (true) {
+        pos = 0;
+        while (pos < sizeof(buffer) - 1) {
+            if (recv(client_socket_, &buffer[pos], 1, 0) <= 0) {
+                return false;
+            }
+            
+            if (buffer[pos] == '\n') {
+                if (pos > 0 && buffer[pos-1] == '\r') {
+                    buffer[pos-1] = '\0';
+                    line = std::string(buffer);
+                    break;
+                } else {
+                    buffer[pos] = '\0';
+                    line = std::string(buffer);
+                    break;
+                }
+            }
+            pos++;
+        }
+        
+        // Пустая строка означает конец заголовков
+        if (line.empty()) {
+            original_http_request_ += "\r\n";
+            break;
+        } else {
+            // Модифицируем заголовок Host, если нужно
+            if (line.find("Host:") == 0) {
+                original_http_request_ += "Host: " + target_host + "\r\n";
+            } else {
+                original_http_request_ += line + "\r\n";
+            }
+        }
+    }
+    
+    return true;
+}
+
+void ProxyHandler::send_http_response(bool success) {
+    std::string response;
+    if (success) {
+        response = "HTTP/1.1 200 Connection established\r\n\r\n";
+    } else {
+        response = "HTTP/1.1 502 Bad Gateway\r\n\r\n";
+    }
+    
+    send(client_socket_, response.c_str(), response.length(), 0);
+}
+
+void ProxyHandler::forward_http_request() {
+    if (original_http_request_.empty()) {
+        Logger::error("Исходный HTTP запрос не сохранен");
+        return;
+    }
+    
+    Logger::info("Пересылка HTTP запроса на целевой сервер");
+    
+    // Отправляем сохраненный HTTP запрос на целевой сервер
+    ssize_t sent = send(target_socket_, original_http_request_.c_str(), 
+                       original_http_request_.length(), 0);
+    
+    if (sent < 0) {
+        Logger::error("Ошибка при отправке HTTP запроса: " + std::string(strerror(errno)));
+    } else {
+        Logger::info("HTTP запрос успешно переслан (" + std::to_string(sent) + " байт)");
+    }
+}
