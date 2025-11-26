@@ -1,0 +1,29 @@
+{
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "max_connections": 100,
+        "buffer_size": 4096,
+        "timeout": 30
+    },
+    "tunnel": {
+        "host": "127.0.0.1",
+        "port": 8081,
+        "xor_key": 42
+    },
+    "encryption": {
+        "library_path": ".\\build\\encryption_plugins\\xor_encryption.dll",
+        "algorithm": "XOR",
+        "key": "MySecretKey123"
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "vpn_server.log",
+        "format": "%(asctime)s - %(levelname)s - %(message)s"
+    },
+    "authentication": {
+        "enabled": false,
+        "username": "admin",
+        "password": "password123"
+    }
+}

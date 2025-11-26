@@ -7,6 +7,7 @@
 #include <thread>
 #include "config.h"
 #include "encryption_manager.h"
+#include <thread>
 
 class ProxyHandler {
 public:

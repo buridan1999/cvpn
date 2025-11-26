@@ -1,11 +1,7 @@
 #include "tunnel_server.h"
 #include "tunnel_handler.h"
 #include "logger.h"
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <sys/select.h>
+#include "platform_compat.h"
 #include <cstring>
 #include <cerrno>
 #include <csignal>

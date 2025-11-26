@@ -1,14 +1,19 @@
 #include <iostream>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#include "src/platform_compat.h"
 #include <cstring>
 #include <cstdint>
 
 int main(int argc, char* argv[]) {
+    // Инициализация сокетов для Windows
+    if (!init_sockets()) {
+        std::cerr << "Ошибка инициализации сокетов!" << std::endl;
+        return 1;
+    }
+    
     if (argc != 4) {
         std::cout << "Использование: " << argv[0] << " <vpn_server_ip> <vpn_server_port> <target_host:target_port>" << std::endl;
         std::cout << "Пример: " << argv[0] << " 127.0.0.1 8080 google.com:80" << std::endl;
+        cleanup_sockets();
         return 1;
     }
     
@@ -20,6 +25,7 @@ int main(int argc, char* argv[]) {
     size_t colon_pos = target_address.find(':');
     if (colon_pos == std::string::npos) {
         std::cerr << "Некорректный формат целевого адреса" << std::endl;
+        cleanup_sockets();
         return 1;
     }
     
@@ -107,5 +113,6 @@ int main(int argc, char* argv[]) {
     }
     
     close(sock);
+    cleanup_sockets();
     return 0;
 }

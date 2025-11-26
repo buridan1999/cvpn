@@ -1,12 +1,7 @@
 #include "tunnel_handler.h"
 #include "logger.h"
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <sys/select.h>
+#include "platform_compat.h"
 #include <cstring>
-#include <netdb.h>
 #include <cerrno>
 
 TunnelHandler::TunnelHandler(int tunnel_socket, const std::string& client_ip,

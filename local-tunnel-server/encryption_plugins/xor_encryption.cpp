@@ -1,4 +1,5 @@
 #include "../src/encryption_interface.h"
+#include "encryption_export.h"
 #include <cstring>
 
 /**
@@ -47,11 +48,11 @@ public:
 
 // Экспортируемые функции
 extern "C" {
-    IEncryption* create_encryption() {
+    ENCRYPTION_API IEncryption* ENCRYPTION_CALL create_encryption() {
         return new XOREncryption();
     }
-    
-    void destroy_encryption(IEncryption* encryption) {
+
+    ENCRYPTION_API void ENCRYPTION_CALL destroy_encryption(IEncryption* encryption) {
         delete encryption;
     }
 }

@@ -1,18 +1,12 @@
 #include "proxy_handler.h"
 #include "logger.h"
 #include "utils.h"
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <sys/select.h>
+#include "platform_compat.h"
 #include <cstring>
 #include <cstdint>
-#include <netdb.h>
 #include <sstream>
 #include <vector>
 #include <cerrno>
-#include <netdb.h>
 #include <chrono>
 #include <thread>
 

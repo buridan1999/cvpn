@@ -9,6 +9,8 @@
 #include <mutex>
 #include "config.h"
 #include "proxy_handler.h"
+#include <thread>
+#include <mutex>
 
 class VPNServer {
 public:

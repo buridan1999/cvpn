@@ -1,7 +1,12 @@
 #include "encryption_manager.h"
 #include "logger.h"
-#include <dlfcn.h>
 #include <cstring>
+
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <dlfcn.h>
+#endif
 
 EncryptionManager::EncryptionManager() 
     : library_handle_(nullptr), encryption_(nullptr), destroy_func_(nullptr) {
@@ -17,7 +22,37 @@ bool EncryptionManager::load_encryption(const std::string& library_path,
     // Выгружаем предыдущий алгоритм, если был загружен
     unload_encryption();
     
-    // Загружаем динамическую библиотеку
+#ifdef _WIN32
+    // Загружаем динамическую библиотеку (Windows)
+    library_handle_ = LoadLibraryA(library_path.c_str());
+    if (!library_handle_) {
+        DWORD error = GetLastError();
+        Logger::error("Не удалось загрузить библиотеку шифрования: " + library_path + 
+                     " - Ошибка: " + std::to_string(error));
+        return false;
+    }
+    
+    // Получаем функцию создания
+    create_encryption_func create_func = 
+        (create_encryption_func) GetProcAddress((HMODULE)library_handle_, "create_encryption");
+    
+    if (!create_func) {
+        Logger::error("Не найдена функция create_encryption в библиотеке");
+        FreeLibrary((HMODULE)library_handle_);
+        library_handle_ = nullptr;
+        return false;
+    }
+    
+    // Получаем функцию удаления
+    destroy_func_ = (destroy_encryption_func) GetProcAddress((HMODULE)library_handle_, "destroy_encryption");
+    if (!destroy_func_) {
+        Logger::error("Не найдена функция destroy_encryption в библиотеке");
+        FreeLibrary((HMODULE)library_handle_);
+        library_handle_ = nullptr;
+        return false;
+    }
+#else
+    // Загружаем динамическую библиотеку (Unix/Linux)
     library_handle_ = dlopen(library_path.c_str(), RTLD_LAZY);
     if (!library_handle_) {
         Logger::error("Не удалось загрузить библиотеку шифрования: " + library_path + 
@@ -49,12 +84,17 @@ bool EncryptionManager::load_encryption(const std::string& library_path,
         library_handle_ = nullptr;
         return false;
     }
+#endif
     
     // Создаем экземпляр алгоритма
     encryption_ = create_func();
     if (!encryption_) {
         Logger::error("Не удалось создать экземпляр алгоритма шифрования");
+#ifdef _WIN32
+        FreeLibrary((HMODULE)library_handle_);
+#else
         dlclose(library_handle_);
+#endif
         library_handle_ = nullptr;
         destroy_func_ = nullptr;
         return false;
@@ -65,7 +105,11 @@ bool EncryptionManager::load_encryption(const std::string& library_path,
         Logger::error("Не удалось инициализировать алгоритм шифрования");
         destroy_func_(encryption_);
         encryption_ = nullptr;
+#ifdef _WIN32
+        FreeLibrary((HMODULE)library_handle_);
+#else
         dlclose(library_handle_);
+#endif
         library_handle_ = nullptr;
         destroy_func_ = nullptr;
         return false;
@@ -86,7 +130,11 @@ void EncryptionManager::unload_encryption() {
     }
     
     if (library_handle_) {
+#ifdef _WIN32
+        FreeLibrary((HMODULE)library_handle_);
+#else
         dlclose(library_handle_);
+#endif
         library_handle_ = nullptr;
     }
 }

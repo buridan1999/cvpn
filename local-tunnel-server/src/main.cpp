@@ -2,12 +2,19 @@
 #include "tunnel_server.h"
 #include "logger.h"
 #include "config.h"
+#include "platform_compat.h"
 #include <iostream>
 #include <csignal>
 #include <thread>
 #include <chrono>
 
 int main(int argc, char* argv[]) {
+    // Инициализация сокетов для Windows
+    if (!init_sockets()) {
+        std::cerr << "Ошибка инициализации сокетов!" << std::endl;
+        return 1;
+    }
+    
     std::cout << "=== Local Tunnel Server ===" << std::endl;
     std::cout << "Двухсокетный Proxy/Tunnel Server (C++)" << std::endl;
     std::cout << "------------------------------" << std::endl;
@@ -77,9 +84,13 @@ int main(int argc, char* argv[]) {
         
         Logger::info("Завершение работы");
         
+        // Очистка сокетов для Windows
+        cleanup_sockets();
+        
     } catch (const std::exception& e) {
         std::cerr << "Критическая ошибка: " << e.what() << std::endl;
         Logger::error("Критическая ошибка: " + std::string(e.what()));
+        cleanup_sockets();
         return 1;
     }
 

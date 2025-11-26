@@ -1,11 +1,7 @@
 #include "vpn_server.h"
 #include "logger.h"
 #include "utils.h"
-#include <sys/socket.h>
-#include <sys/select.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#include "platform_compat.h"
 #include <csignal>
 #include <cstring>
 #include <algorithm>
