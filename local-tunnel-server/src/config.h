@@ -14,6 +14,11 @@ public:
     int get_buffer_size() const { return buffer_size_; }
     int get_timeout() const { return timeout_; }
     
+    // Геттеры для туннельных настроек
+    std::string get_tunnel_host() const { return tunnel_host_; }
+    int get_tunnel_port() const { return tunnel_port_; }
+    unsigned char get_xor_key() const { return xor_key_; }
+    
     // Геттеры для настроек логирования
     std::string get_log_level() const { return log_level_; }
     std::string get_log_file() const { return log_file_; }
@@ -36,6 +41,11 @@ private:
     int max_connections_;
     int buffer_size_;
     int timeout_;
+    
+    // Туннельные настройки
+    std::string tunnel_host_;
+    int tunnel_port_;
+    unsigned char xor_key_;
     
     // Настройки логирования
     std::string log_level_;

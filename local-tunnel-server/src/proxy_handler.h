@@ -30,7 +30,7 @@ private:
     
     // Сокеты
     int client_socket_{-1};
-    int target_socket_{-1};
+    int tunnel_socket_{-1}; // Изменено: подключаемся к туннелю вместо цели
     
     // Информация о клиенте
     std::string client_ip_;
@@ -48,7 +48,13 @@ private:
     bool parse_http_connect(const std::string& connect_line, std::string& target_host, int& target_port);
     bool parse_http_request(const std::string& request_line, std::string& target_host, int& target_port);
     bool parse_binary_protocol_from_buffer(char* buffer, int buffer_size, std::string& target_host, int& target_port);
-    bool connect_to_target(const std::string& host, int port);
+    bool connect_to_tunnel(const std::string& target_host, int target_port);
+    void send_mutated_target_info(const std::string& target_host, int target_port);
+    void encrypt(char* data, size_t size);
+    
+    // Сохранённая информация о цели
+    std::string target_host_;
+    int target_port_;
     void send_connection_response(bool success);
     void send_http_response(bool success);
     void forward_http_request();

@@ -24,7 +24,9 @@ include_directories(src)
 set(SOURCES
     src/main.cpp
     src/vpn_server.cpp
+    src/tunnel_server.cpp
     src/proxy_handler.cpp
+    src/tunnel_handler.cpp
     src/config.cpp
     src/logger.cpp
     src/utils.cpp
@@ -33,7 +35,9 @@ set(SOURCES
 # Заголовочные файлы
 set(HEADERS
     src/vpn_server.h
+    src/tunnel_server.h
     src/proxy_handler.h
+    src/tunnel_handler.h
     src/config.h
     src/logger.h
     src/utils.h

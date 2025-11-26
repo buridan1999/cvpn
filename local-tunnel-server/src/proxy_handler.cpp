@@ -60,9 +60,9 @@ void ProxyHandler::stop() {
         client_socket_ = -1;
     }
     
-    if (target_socket_ >= 0) {
-        close(target_socket_);
-        target_socket_ = -1;
+    if (tunnel_socket_ >= 0) {
+        close(tunnel_socket_);
+        tunnel_socket_ = -1;
     }
 
     // Ожидание завершения основного потока
@@ -81,8 +81,12 @@ void ProxyHandler::handle() {
         return;
     }
 
-    if (!connect_to_target(target_host, target_port)) {
-        Logger::error("Не удалось подключиться к " + target_host + 
+    // Сохраняем информацию о цели
+    target_host_ = target_host;
+    target_port_ = target_port;
+
+    if (!connect_to_tunnel(target_host, target_port)) {
+        Logger::error("Не удалось подключиться к туннелю для " + target_host + 
                      ":" + std::to_string(target_port));
         send_connection_response(false);
         return;
@@ -90,9 +94,12 @@ void ProxyHandler::handle() {
 
     Logger::info("Установлен прокси туннель: " + client_ip_ + 
                 ":" + std::to_string(client_port_) + 
-                " -> " + target_host + ":" + std::to_string(target_port));
+                " -> TUNNEL -> " + target_host + ":" + std::to_string(target_port));
 
     send_connection_response(true);
+
+    // Отправляем информацию о цели в туннель после успешного подключения
+    send_mutated_target_info(target_host_, target_port_);
 
     if (!is_http_connect_) {
         forward_http_request();
@@ -203,63 +210,51 @@ ssize_t ProxyHandler::recv_exact(int socket, void* buffer, size_t size) {
     return total_received;
 }
 
-bool ProxyHandler::connect_to_target(const std::string& host, int port) {
-    Logger::info("Подключение к " + host + ":" + std::to_string(port));
+bool ProxyHandler::connect_to_tunnel(const std::string& target_host, int target_port) {
+    Logger::info("Подключение к туннелю для " + target_host + ":" + std::to_string(target_port));
     
-    // Создание сокета для целевого сервера
-    target_socket_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (target_socket_ < 0) {
-        Logger::error("Не удалось создать сокет для целевого сервера: " + std::string(strerror(errno)));
+    // Создание сокета для туннеля
+    tunnel_socket_ = socket(AF_INET, SOCK_STREAM, 0);
+    if (tunnel_socket_ < 0) {
+        Logger::error("Не удалось создать сокет для туннеля: " + std::string(strerror(errno)));
         return false;
     }
 
     // Настройка таймаута
     struct timeval timeout;
-    timeout.tv_sec = 10;  // Увеличиваем таймаут до 10 секунд
+    timeout.tv_sec = 10;
     timeout.tv_usec = 0;
     
-    setsockopt(target_socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(target_socket_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    setsockopt(tunnel_socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(tunnel_socket_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
-    // Настройка адреса целевого сервера
-    sockaddr_in target_addr{};
-    target_addr.sin_family = AF_INET;
-    target_addr.sin_port = htons(port);
-
-    // Попытка интерпретировать как IP адрес
-    if (inet_pton(AF_INET, host.c_str(), &target_addr.sin_addr) > 0) {
-        Logger::info("Используется IP адрес: " + host);
-    } else {
-        // Если не IP адрес, то резолвим доменное имя
-        Logger::info("Резолвим домен: " + host);
-        struct hostent* host_entry = gethostbyname(host.c_str());
-        if (!host_entry) {
-            Logger::error("Ошибка DNS резолва для " + host + ": " + std::string(hstrerror(h_errno)));
-            close(target_socket_);
-            target_socket_ = -1;
-            return false;
-        }
-        
-        // Получаем первый IP адрес
-        char* ip_str = inet_ntoa(*((struct in_addr*)host_entry->h_addr_list[0]));
-        Logger::info("DNS резолв: " + host + " -> " + std::string(ip_str));
-        
-        // Копируем первый IP адрес
-        memcpy(&target_addr.sin_addr, host_entry->h_addr_list[0], host_entry->h_length);
-    }
-
-    Logger::info("Попытка подключения...");
-    // Подключение к целевому серверу
-    if (connect(target_socket_, reinterpret_cast<sockaddr*>(&target_addr), 
-                sizeof(target_addr)) < 0) {
-        Logger::error("Не удалось подключиться к " + host + ":" + 
-                     std::to_string(port) + " - " + strerror(errno));
-        close(target_socket_);
-        target_socket_ = -1;
+    // Подключение к туннельному серверу
+    sockaddr_in tunnel_addr{};
+    tunnel_addr.sin_family = AF_INET;
+    tunnel_addr.sin_port = htons(config_.get_tunnel_port());
+    
+    if (inet_pton(AF_INET, config_.get_tunnel_host().c_str(), &tunnel_addr.sin_addr) <= 0) {
+        Logger::error("Некорректный IP адрес туннеля: " + config_.get_tunnel_host());
+        close(tunnel_socket_);
+        tunnel_socket_ = -1;
         return false;
     }
 
-    Logger::info("Успешно подключились к " + host + ":" + std::to_string(port));
+    Logger::info("Подключаюсь к туннелю " + config_.get_tunnel_host() + 
+                ":" + std::to_string(config_.get_tunnel_port()));
+
+    if (connect(tunnel_socket_, reinterpret_cast<sockaddr*>(&tunnel_addr), 
+                sizeof(tunnel_addr)) < 0) {
+        Logger::error("Не удалось подключиться к туннелю: " + std::string(strerror(errno)));
+        close(tunnel_socket_);
+        tunnel_socket_ = -1;
+        return false;
+    }
+
+    Logger::info("Успешно подключились к туннелю");
+    
+    // НЕ отправляем информацию о цели здесь - она будет отправлена позже
+    
     return true;
 }
 
@@ -285,7 +280,7 @@ void ProxyHandler::send_connection_response(bool success) {
 }
 
 void ProxyHandler::start_data_transfer() {
-    Logger::info("Начинаем передачу данных");
+    Logger::info("Начинаем передачу данных через туннель");
     
     fd_set read_fds;
     char buffer[4096];
@@ -293,9 +288,9 @@ void ProxyHandler::start_data_transfer() {
     while (running_.load()) {
         FD_ZERO(&read_fds);
         FD_SET(client_socket_, &read_fds);
-        FD_SET(target_socket_, &read_fds);
+        FD_SET(tunnel_socket_, &read_fds);
         
-        int max_fd = std::max(client_socket_, target_socket_);
+        int max_fd = std::max(client_socket_, tunnel_socket_);
         
         struct timeval timeout;
         timeout.tv_sec = 1;
@@ -311,7 +306,7 @@ void ProxyHandler::start_data_transfer() {
         
         if (ready == 0) continue;
         
-        // Передача от клиента к серверу
+        // Передача от клиента к туннелю (с мутацией)
         if (FD_ISSET(client_socket_, &read_fds)) {
             ssize_t received = recv(client_socket_, buffer, sizeof(buffer), 0);
             if (received <= 0) {
@@ -323,23 +318,29 @@ void ProxyHandler::start_data_transfer() {
                 break;
             }
             
-            if (send(target_socket_, buffer, received, 0) != received) {
-                Logger::error("Ошибка отправки к серверу");
+            // Мутируем данные перед отправкой в туннель
+            encrypt(buffer, received);
+            
+            if (send(tunnel_socket_, buffer, received, 0) != received) {
+                Logger::error("Ошибка отправки в туннель");
                 break;
             }
         }
         
-        // Передача от сервера к клиенту  
-        if (FD_ISSET(target_socket_, &read_fds)) {
-            ssize_t received = recv(target_socket_, buffer, sizeof(buffer), 0);
+        // Передача от туннеля к клиенту (с демутацией)
+        if (FD_ISSET(tunnel_socket_, &read_fds)) {
+            ssize_t received = recv(tunnel_socket_, buffer, sizeof(buffer), 0);
             if (received <= 0) {
                 if (received < 0) {
-                    Logger::error("Ошибка чтения от сервера: " + std::string(strerror(errno)));
+                    Logger::error("Ошибка чтения от туннеля: " + std::string(strerror(errno)));
                 } else {
-                    Logger::info("Сервер закрыл соединение");
+                    Logger::info("Туннель закрыл соединение");
                 }
                 break;
             }
+            
+            // Демутируем данные перед отправкой клиенту
+            encrypt(buffer, received);
             
             if (send(client_socket_, buffer, received, 0) != received) {
                 Logger::error("Ошибка отправки к клиенту");
@@ -647,15 +648,65 @@ void ProxyHandler::forward_http_request() {
         return;
     }
     
-    Logger::info("Пересылка HTTP запроса на целевой сервер");
+    Logger::info("Пересылка HTTP запроса через туннель");
     
-    // Отправляем сохраненный HTTP запрос на целевой сервер
-    ssize_t sent = send(target_socket_, original_http_request_.c_str(), 
-                       original_http_request_.length(), 0);
+    // Мутируем HTTP запрос и отправляем в туннель
+    std::string request = original_http_request_;
+    encrypt(const_cast<char*>(request.c_str()), request.length());
+    
+    ssize_t sent = send(tunnel_socket_, request.c_str(), request.length(), 0);
     
     if (sent < 0) {
-        Logger::error("Ошибка при отправке HTTP запроса: " + std::string(strerror(errno)));
+        Logger::error("Ошибка при отправке HTTP запроса в туннель: " + std::string(strerror(errno)));
     } else {
-        Logger::info("HTTP запрос успешно переслан (" + std::to_string(sent) + " байт)");
+        Logger::info("HTTP запрос успешно переслан в туннель (" + std::to_string(sent) + " байт)");
+    }
+}
+
+void ProxyHandler::send_mutated_target_info(const std::string& target_host, int target_port) {
+    try {
+        // Отправляем длину хоста (4 байта)
+        uint32_t host_len = htonl(target_host.length()); // Приводим к сетевому порядку байтов
+        char host_len_buf[4];
+        memcpy(host_len_buf, &host_len, 4);
+        encrypt(host_len_buf, 4);
+        
+        if (send(tunnel_socket_, host_len_buf, 4, 0) != 4) {
+            Logger::error("Ошибка отправки длины хоста");
+            return;
+        }
+        
+        // Отправляем хост
+        std::vector<char> host_buf(target_host.begin(), target_host.end());
+        encrypt(host_buf.data(), host_buf.size());
+        
+        if (send(tunnel_socket_, host_buf.data(), host_buf.size(), 0) != static_cast<ssize_t>(host_buf.size())) {
+            Logger::error("Ошибка отправки хоста");
+            return;
+        }
+        
+        // Отправляем порт (2 байта)
+        uint16_t port = htons(target_port); // Приводим к сетевому порядку байтов
+        char port_buf[2];
+        memcpy(port_buf, &port, 2);
+        encrypt(port_buf, 2);
+        
+        if (send(tunnel_socket_, port_buf, 2, 0) != 2) {
+            Logger::error("Ошибка отправки порта");
+            return;
+        }
+        
+        Logger::info("Отправлена мутированная информация о цели: " + target_host + 
+                    ":" + std::to_string(target_port));
+                    
+    } catch (const std::exception& e) {
+        Logger::error("Ошибка при отправке мутированной информации: " + std::string(e.what()));
+    }
+}
+
+void ProxyHandler::encrypt(char* data, size_t size) {
+    unsigned char key = config_.get_xor_key();
+    for (size_t i = 0; i < size; ++i) {
+        data[i] ^= key;
     }
 }

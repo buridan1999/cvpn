@@ -6,6 +6,11 @@
         "buffer_size": 4096,
         "timeout": 30
     },
+    "tunnel": {
+        "host": "127.0.0.1",
+        "port": 8081,
+        "xor_key": 42
+    },
     "logging": {
         "level": "INFO",
         "file": "vpn_server.log",
