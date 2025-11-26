@@ -11,6 +11,11 @@
         "port": 8081,
         "xor_key": 42
     },
+    "encryption": {
+        "library_path": "./build/encryption_plugins/libxor_encryption.so",
+        "algorithm": "XOR",
+        "key": "MySecretKey123"
+    },
     "logging": {
         "level": "INFO",
         "file": "vpn_server.log",

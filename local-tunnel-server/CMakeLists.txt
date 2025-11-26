@@ -27,6 +27,7 @@ set(SOURCES
     src/tunnel_server.cpp
     src/proxy_handler.cpp
     src/tunnel_handler.cpp
+    src/encryption_manager.cpp
     src/config.cpp
     src/logger.cpp
     src/utils.cpp
@@ -38,6 +39,8 @@ set(HEADERS
     src/tunnel_server.h
     src/proxy_handler.h
     src/tunnel_handler.h
+    src/encryption_interface.h
+    src/encryption_manager.h
     src/config.h
     src/logger.h
     src/utils.h
@@ -52,10 +55,26 @@ add_executable(test-client test_client.cpp)
 # Линковка библиотек
 target_link_libraries(${PROJECT_NAME} 
     Threads::Threads
+    dl  # Для dlopen/dlclose
 )
 
 target_link_libraries(test-client 
     Threads::Threads
+)
+
+# Создание динамических библиотек шифрования
+add_library(xor_encryption SHARED encryption_plugins/xor_encryption.cpp)
+set_target_properties(xor_encryption PROPERTIES
+    PREFIX "lib"
+    OUTPUT_NAME "xor_encryption"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/encryption_plugins"
+)
+
+add_library(caesar_encryption SHARED encryption_plugins/caesar_encryption.cpp)
+set_target_properties(caesar_encryption PROPERTIES
+    PREFIX "lib"
+    OUTPUT_NAME "caesar_encryption"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/encryption_plugins"
 )
 
 # Настройки для Linux

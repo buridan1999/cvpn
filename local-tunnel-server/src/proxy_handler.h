@@ -6,6 +6,7 @@
 #include <atomic>
 #include <thread>
 #include "config.h"
+#include "encryption_manager.h"
 
 class ProxyHandler {
 public:
@@ -50,7 +51,10 @@ private:
     bool parse_binary_protocol_from_buffer(char* buffer, int buffer_size, std::string& target_host, int& target_port);
     bool connect_to_tunnel(const std::string& target_host, int target_port);
     void send_mutated_target_info(const std::string& target_host, int target_port);
-    void encrypt(char* data, size_t size);
+    void encrypt(unsigned char* data, size_t size);
+    
+    // Менеджер шифрования
+    EncryptionManager encryption_manager_;
     
     // Сохранённая информация о цели
     std::string target_host_;

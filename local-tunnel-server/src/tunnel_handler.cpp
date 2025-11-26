@@ -21,6 +21,15 @@ TunnelHandler::TunnelHandler(int tunnel_socket, const std::string& client_ip,
     
     setsockopt(tunnel_socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     setsockopt(tunnel_socket_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    
+    // Инициализация менеджера шифрования
+    std::string key = config_.get_encryption_key();
+    if (!encryption_manager_.load_encryption(
+            config_.get_encryption_library(),
+            reinterpret_cast<const unsigned char*>(key.c_str()),
+            key.length())) {
+        Logger::warning("Не удалось загрузить алгоритм шифрования для TunnelHandler");
+    }
 }
 
 TunnelHandler::~TunnelHandler() noexcept {
@@ -130,7 +139,7 @@ bool TunnelHandler::read_mutated_data(std::string& target_host, int& target_port
         Logger::info("Получена длина хоста (hex до демутации): " + hex_data);
         
         // Демутируем длину хоста
-        decrypt(buffer, 4);
+        decrypt(reinterpret_cast<unsigned char*>(buffer), 4);
         
         // Показываем демутированные данные
         hex_data.clear();
@@ -162,7 +171,7 @@ bool TunnelHandler::read_mutated_data(std::string& target_host, int& target_port
         }
         
         // Демутируем хост
-        decrypt(host_buffer.data(), host_len);
+        decrypt(reinterpret_cast<unsigned char*>(host_buffer.data()), host_len);
         target_host = std::string(host_buffer.data(), host_len);
         
         // Читаем порт
@@ -173,7 +182,7 @@ bool TunnelHandler::read_mutated_data(std::string& target_host, int& target_port
         }
         
         // Демутируем порт
-        decrypt(buffer, 2);
+        decrypt(reinterpret_cast<unsigned char*>(buffer), 2);
         
         uint16_t port;
         memcpy(&port, buffer, 2);
@@ -196,7 +205,7 @@ bool TunnelHandler::read_mutated_data(std::string& target_host, int& target_port
             received = recv(tunnel_socket_, data_buffer, sizeof(data_buffer), 0);
             if (received > 0) {
                 // Демутируем начальные данные
-                decrypt(data_buffer, received);
+                decrypt(reinterpret_cast<unsigned char*>(data_buffer), received);
                 initial_data.assign(data_buffer, data_buffer + received);
                 Logger::info("Получены начальные данные: " + std::to_string(received) + " байт");
             }
@@ -327,7 +336,7 @@ void TunnelHandler::transfer_data_to_target(int source_socket, int destination_s
         }
         
         // Демутируем данные перед отправкой на целевой сервер
-        decrypt(buffer, received);
+        decrypt(reinterpret_cast<unsigned char*>(buffer), received);
         
         if (send(destination_socket, buffer, received, 0) != received) {
             Logger::error("Ошибка отправки к целевому серверу");
@@ -376,7 +385,7 @@ void TunnelHandler::transfer_data_from_target(int source_socket, int destination
         }
         
         // Мутируем данные перед отправкой обратно в туннель
-        encrypt(buffer, received);
+        encrypt(reinterpret_cast<unsigned char*>(buffer), received);
         
         if (send(destination_socket, buffer, received, 0) != received) {
             Logger::error("Ошибка отправки обратно в туннель");
@@ -388,16 +397,10 @@ void TunnelHandler::transfer_data_from_target(int source_socket, int destination
     Logger::info("Передача данных от цели завершена");
 }
 
-void TunnelHandler::decrypt(char* data, size_t size) {
-    unsigned char key = config_.get_xor_key();
-    for (size_t i = 0; i < size; ++i) {
-        data[i] ^= key;
-    }
+void TunnelHandler::decrypt(unsigned char* data, size_t size) {
+    encryption_manager_.decrypt(data, size);
 }
 
-void TunnelHandler::encrypt(char* data, size_t size) {
-    unsigned char key = config_.get_xor_key();
-    for (size_t i = 0; i < size; ++i) {
-        data[i] ^= key;
-    }
+void TunnelHandler::encrypt(unsigned char* data, size_t size) {
+    encryption_manager_.encrypt(data, size);
 }

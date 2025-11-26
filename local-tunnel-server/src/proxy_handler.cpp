@@ -28,6 +28,15 @@ ProxyHandler::ProxyHandler(int client_socket, const std::string& client_ip,
     
     setsockopt(client_socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     setsockopt(client_socket_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    
+    // Инициализация менеджера шифрования
+    std::string key = config_.get_encryption_key();
+    if (!encryption_manager_.load_encryption(
+            config_.get_encryption_library(),
+            reinterpret_cast<const unsigned char*>(key.c_str()),
+            key.length())) {
+        Logger::warning("Не удалось загрузить алгоритм шифрования для ProxyHandler");
+    }
 }
 
 ProxyHandler::~ProxyHandler() noexcept {
@@ -319,7 +328,7 @@ void ProxyHandler::start_data_transfer() {
             }
             
             // Мутируем данные перед отправкой в туннель
-            encrypt(buffer, received);
+            encrypt(reinterpret_cast<unsigned char*>(buffer), received);
             
             if (send(tunnel_socket_, buffer, received, 0) != received) {
                 Logger::error("Ошибка отправки в туннель");
@@ -340,7 +349,7 @@ void ProxyHandler::start_data_transfer() {
             }
             
             // Демутируем данные перед отправкой клиенту
-            encrypt(buffer, received);
+            encrypt(reinterpret_cast<unsigned char*>(buffer), received);
             
             if (send(client_socket_, buffer, received, 0) != received) {
                 Logger::error("Ошибка отправки к клиенту");
@@ -652,7 +661,7 @@ void ProxyHandler::forward_http_request() {
     
     // Мутируем HTTP запрос и отправляем в туннель
     std::string request = original_http_request_;
-    encrypt(const_cast<char*>(request.c_str()), request.length());
+    encrypt(reinterpret_cast<unsigned char*>(const_cast<char*>(request.c_str())), request.length());
     
     ssize_t sent = send(tunnel_socket_, request.c_str(), request.length(), 0);
     
@@ -669,7 +678,7 @@ void ProxyHandler::send_mutated_target_info(const std::string& target_host, int 
         uint32_t host_len = htonl(target_host.length()); // Приводим к сетевому порядку байтов
         char host_len_buf[4];
         memcpy(host_len_buf, &host_len, 4);
-        encrypt(host_len_buf, 4);
+        encrypt(reinterpret_cast<unsigned char*>(host_len_buf), 4);
         
         if (send(tunnel_socket_, host_len_buf, 4, 0) != 4) {
             Logger::error("Ошибка отправки длины хоста");
@@ -678,7 +687,7 @@ void ProxyHandler::send_mutated_target_info(const std::string& target_host, int 
         
         // Отправляем хост
         std::vector<char> host_buf(target_host.begin(), target_host.end());
-        encrypt(host_buf.data(), host_buf.size());
+        encrypt(reinterpret_cast<unsigned char*>(host_buf.data()), host_buf.size());
         
         if (send(tunnel_socket_, host_buf.data(), host_buf.size(), 0) != static_cast<ssize_t>(host_buf.size())) {
             Logger::error("Ошибка отправки хоста");
@@ -689,7 +698,7 @@ void ProxyHandler::send_mutated_target_info(const std::string& target_host, int 
         uint16_t port = htons(target_port); // Приводим к сетевому порядку байтов
         char port_buf[2];
         memcpy(port_buf, &port, 2);
-        encrypt(port_buf, 2);
+        encrypt(reinterpret_cast<unsigned char*>(port_buf), 2);
         
         if (send(tunnel_socket_, port_buf, 2, 0) != 2) {
             Logger::error("Ошибка отправки порта");
@@ -704,9 +713,14 @@ void ProxyHandler::send_mutated_target_info(const std::string& target_host, int 
     }
 }
 
-void ProxyHandler::encrypt(char* data, size_t size) {
-    unsigned char key = config_.get_xor_key();
-    for (size_t i = 0; i < size; ++i) {
-        data[i] ^= key;
+void ProxyHandler::encrypt(unsigned char* data, size_t size) {
+    if (encryption_manager_.is_loaded()) {
+        encryption_manager_.encrypt(data, size);
+    } else {
+        // Fallback к XOR, если не удалось загрузить алгоритм
+        unsigned char key = config_.get_xor_key();
+        for (size_t i = 0; i < size; ++i) {
+            data[i] ^= key;
+        }
     }
 }

@@ -2,6 +2,7 @@
 #define TUNNEL_HANDLER_H
 
 #include "config.h"
+#include "encryption_manager.h"
 #include <memory>
 #include <thread>
 #include <atomic>
@@ -27,8 +28,11 @@ private:
     void transfer_data_from_target(int source_socket, int destination_socket);
     
     // XOR функции для мутации/демутации данных
-    void decrypt(char* data, size_t size);
-    void encrypt(char* data, size_t size);
+    void decrypt(unsigned char* data, size_t size);
+    void encrypt(unsigned char* data, size_t size);
+    
+    // Менеджер шифрования
+    EncryptionManager encryption_manager_;
     
     const Config& config_;
     

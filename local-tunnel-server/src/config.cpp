@@ -22,6 +22,11 @@ void Config::set_defaults() {
     tunnel_port_ = 8081;
     xor_key_ = 42;
     
+    // Настройки шифрования по умолчанию
+    encryption_library_ = "./encryption_plugins/libxor_encryption.so";
+    encryption_algorithm_ = "XOR";
+    encryption_key_ = "DefaultKey123";
+    
     // Настройки логирования по умолчанию
     log_level_ = "INFO";
     log_file_ = "vpn_server.log";
@@ -175,6 +180,49 @@ bool Config::parse_json_file() {
                     try {
                         xor_key_ = static_cast<unsigned char>(std::stoi(key_str));
                     } catch (...) {}
+                }
+            }
+        }
+    }
+    
+    // Парсинг настроек шифрования
+    size_t encryption_section = content.find("\"encryption\"");
+    if (encryption_section != std::string::npos) {
+        size_t encryption_start = content.find("{", encryption_section);
+        size_t encryption_end = content.find("}", encryption_start);
+        if (encryption_start != std::string::npos && encryption_end != std::string::npos) {
+            std::string encryption_content = content.substr(encryption_start, encryption_end - encryption_start);
+            
+            // Парсинг library_path
+            if (encryption_content.find("\"library_path\"") != std::string::npos) {
+                size_t start = encryption_content.find("\"library_path\"");
+                size_t colon = encryption_content.find(":", start);
+                size_t quote_start = encryption_content.find("\"", colon);
+                size_t quote_end = encryption_content.find("\"", quote_start + 1);
+                if (quote_start != std::string::npos && quote_end != std::string::npos) {
+                    encryption_library_ = encryption_content.substr(quote_start + 1, quote_end - quote_start - 1);
+                }
+            }
+            
+            // Парсинг algorithm
+            if (encryption_content.find("\"algorithm\"") != std::string::npos) {
+                size_t start = encryption_content.find("\"algorithm\"");
+                size_t colon = encryption_content.find(":", start);
+                size_t quote_start = encryption_content.find("\"", colon);
+                size_t quote_end = encryption_content.find("\"", quote_start + 1);
+                if (quote_start != std::string::npos && quote_end != std::string::npos) {
+                    encryption_algorithm_ = encryption_content.substr(quote_start + 1, quote_end - quote_start - 1);
+                }
+            }
+            
+            // Парсинг key
+            if (encryption_content.find("\"key\"") != std::string::npos) {
+                size_t start = encryption_content.find("\"key\"");
+                size_t colon = encryption_content.find(":", start);
+                size_t quote_start = encryption_content.find("\"", colon);
+                size_t quote_end = encryption_content.find("\"", quote_start + 1);
+                if (quote_start != std::string::npos && quote_end != std::string::npos) {
+                    encryption_key_ = encryption_content.substr(quote_start + 1, quote_end - quote_start - 1);
                 }
             }
         }

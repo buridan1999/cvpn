@@ -19,6 +19,11 @@ public:
     int get_tunnel_port() const { return tunnel_port_; }
     unsigned char get_xor_key() const { return xor_key_; }
     
+    // Геттеры для настроек шифрования
+    std::string get_encryption_library() const { return encryption_library_; }
+    std::string get_encryption_algorithm() const { return encryption_algorithm_; }
+    std::string get_encryption_key() const { return encryption_key_; }
+    
     // Геттеры для настроек логирования
     std::string get_log_level() const { return log_level_; }
     std::string get_log_file() const { return log_file_; }
@@ -46,6 +51,11 @@ private:
     std::string tunnel_host_;
     int tunnel_port_;
     unsigned char xor_key_;
+    
+    // Настройки шифрования
+    std::string encryption_library_;
+    std::string encryption_algorithm_;
+    std::string encryption_key_;
     
     // Настройки логирования
     std::string log_level_;
