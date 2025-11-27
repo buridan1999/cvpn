@@ -6,9 +6,9 @@
 class Config {
 public:
     enum class ServerMode {
-        BOTH,       // Запуск и VPNServer, и TunnelServer
-        PROXY_ONLY, // Запуск только VPNServer (прокси)
-        TUNNEL_ONLY // Запуск только TunnelServer
+        BOTH,       // Запуск и VPNServer (удалённый), и TunnelServer (локальный) 
+        PROXY_ONLY, // Запуск только VPNServer (удалённый сервер на 8081)
+        TUNNEL_ONLY // Запуск только TunnelServer (локальный прокси на 8080)
     };
     
     explicit Config(const std::string& config_file = "config.json");
