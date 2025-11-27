@@ -10,6 +10,9 @@ Config::Config(const std::string& config_file) : config_file_(config_file) {
 }
 
 void Config::set_defaults() {
+    // Режим работы сервера по умолчанию
+    server_mode_ = ServerMode::BOTH;
+    
     // Серверные настройки по умолчанию
     server_host_ = "0.0.0.0";
     server_port_ = 8080;
@@ -71,6 +74,24 @@ bool Config::parse_json_file() {
 
     // Простой парсинг JSON (без библиотеки)
     // Ищем ключи и значения в формате "key": value
+    
+    // Парсинг общих настроек
+    if (content.find("\"server_mode\"") != std::string::npos) {
+        size_t start = content.find("\"server_mode\"");
+        size_t colon = content.find(":", start);
+        size_t quote_start = content.find("\"", colon);
+        size_t quote_end = content.find("\"", quote_start + 1);
+        if (quote_start != std::string::npos && quote_end != std::string::npos) {
+            std::string mode_str = content.substr(quote_start + 1, quote_end - quote_start - 1);
+            if (mode_str == "both") {
+                server_mode_ = ServerMode::BOTH;
+            } else if (mode_str == "proxy_only") {
+                server_mode_ = ServerMode::PROXY_ONLY;
+            } else if (mode_str == "tunnel_only") {
+                server_mode_ = ServerMode::TUNNEL_ONLY;
+            }
+        }
+    }
     
     // Парсинг серверных настроек
     if (content.find("\"host\"") != std::string::npos) {

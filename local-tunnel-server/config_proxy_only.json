@@ -1,6 +1,6 @@
 {
     "general": {
-        "server_mode": "both"
+        "server_mode": "proxy_only"
     },
     "server": {
         "host": "0.0.0.0",

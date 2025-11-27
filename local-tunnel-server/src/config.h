@@ -5,9 +5,16 @@
 
 class Config {
 public:
+    enum class ServerMode {
+        BOTH,       // Запуск и VPNServer, и TunnelServer
+        PROXY_ONLY, // Запуск только VPNServer (прокси)
+        TUNNEL_ONLY // Запуск только TunnelServer
+    };
+    
     explicit Config(const std::string& config_file = "config.json");
     
     // Геттеры для серверных настроек
+    ServerMode get_server_mode() const { return server_mode_; }
     std::string get_server_host() const { return server_host_; }
     int get_server_port() const { return server_port_; }
     int get_max_connections() const { return max_connections_; }
@@ -39,6 +46,9 @@ public:
     
 private:
     std::string config_file_;
+    
+    // Режим работы сервера
+    ServerMode server_mode_;
     
     // Серверные настройки
     std::string server_host_;
