@@ -49,12 +49,15 @@ bool TunnelHandler::start() {
 void TunnelHandler::stop() {
     running_.store(false);
 
+    // Безопасное закрытие сокетов с проверкой валидности
     if (tunnel_socket_ >= 0) {
+        shutdown(tunnel_socket_, SHUT_RDWR);  // Сначала shutdown
         close(tunnel_socket_);
         tunnel_socket_ = -1;
     }
     
     if (target_socket_ >= 0) {
+        shutdown(target_socket_, SHUT_RDWR);  // Сначала shutdown
         close(target_socket_);
         target_socket_ = -1;
     }
@@ -322,7 +325,7 @@ void TunnelHandler::transfer_data_to_target(int source_socket, int destination_s
         
         ssize_t received = recv(source_socket, buffer, sizeof(buffer), 0);
         if (received <= 0) {
-            if (received < 0) {
+            if (received < 0 && errno != ECONNRESET && errno != ENOTCONN && errno != EBADF) {
                 Logger::error("Ошибка чтения от туннеля: " + std::string(strerror(errno)));
             } else {
                 Logger::info("Туннельное соединение закрыто");
@@ -371,7 +374,7 @@ void TunnelHandler::transfer_data_from_target(int source_socket, int destination
         
         ssize_t received = recv(source_socket, buffer, sizeof(buffer), 0);
         if (received <= 0) {
-            if (received < 0) {
+            if (received < 0 && errno != ECONNRESET && errno != ENOTCONN && errno != EBADF) {
                 Logger::error("Ошибка чтения от целевого сервера: " + std::string(strerror(errno)));
             } else {
                 Logger::info("Целевой сервер закрыл соединение");

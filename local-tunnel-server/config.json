@@ -11,11 +11,11 @@
     },
     "tunnel": {
         "host": "127.0.0.1",
-        "port": 8081,
+        "port": 8084,
         "xor_key": 42
     },
     "encryption": {
-        "library_path": "./build/encryption_plugins/xor_encryption",
+        "library_path": "./encryption_plugins/xor_encryption",
         "algorithm": "XOR",
         "key": "MySecretKey123"
     },

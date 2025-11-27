@@ -52,13 +52,15 @@ bool ProxyHandler::start() {
 void ProxyHandler::stop() {
     running_.store(false);
 
-    // Простое закрытие сокетов
+    // Безопасное закрытие сокетов с проверкой валидности
     if (client_socket_ != INVALID_SOCKET) {
+        shutdown(client_socket_, SHUT_RDWR);  // Сначала shutdown
         close(client_socket_);
         client_socket_ = INVALID_SOCKET;
     }
     
     if (tunnel_socket_ != INVALID_SOCKET) {
+        shutdown(tunnel_socket_, SHUT_RDWR);  // Сначала shutdown  
         close(tunnel_socket_);
         tunnel_socket_ = INVALID_SOCKET;
     }
@@ -167,6 +169,7 @@ bool ProxyHandler::get_target_info(std::string& target_host, int& target_port) {
         
         // Проверяем тип HTTP запроса
         if (first_line.find("CONNECT ") == 0) {
+            Logger::info("Обрабатываем CONNECT запрос");
             return parse_http_connect(first_line, target_host, target_port);
         } else if (first_line.find("GET ") == 0 || first_line.find("POST ") == 0 || 
                   first_line.find("PUT ") == 0 || first_line.find("DELETE ") == 0) {
@@ -328,10 +331,10 @@ void ProxyHandler::start_data_transfer() {
         if (FD_ISSET(tunnel_socket_, &read_fds)) {
             ssize_t received = recv(tunnel_socket_, buffer, sizeof(buffer), 0);
             if (received <= 0) {
-                if (received < 0) {
+                if (received < 0 && errno != ECONNRESET && errno != ENOTCONN) {
                     Logger::error("Ошибка чтения от туннеля: " + std::string(strerror(errno)));
                 } else {
-                    Logger::info("Туннель закрыл соединение");
+                    Logger::info("Туннельное соединение закрыто");
                 }
                 break;
             }
@@ -467,6 +470,8 @@ bool ProxyHandler::parse_http_connect(const std::string& connect_line, std::stri
             Logger::error("Неверный порт в CONNECT запросе: " + target);
             return false;
         }
+        
+        Logger::info("Распарсен CONNECT запрос: " + target_host + ":" + std::to_string(target_port));
         
         is_http_connect_ = true;
         
@@ -631,12 +636,24 @@ bool ProxyHandler::parse_http_request(const std::string& request_line, std::stri
 void ProxyHandler::send_http_response(bool success) {
     std::string response;
     if (success) {
-        response = "HTTP/1.1 200 Connection established\r\n\r\n";
+        response = "HTTP/1.1 200 Connection established\r\n"
+                  "Proxy-agent: TunnelProxy/1.0\r\n"
+                  "\r\n";
+        Logger::info("Отправляю успешный HTTP ответ для CONNECT");
     } else {
-        response = "HTTP/1.1 502 Bad Gateway\r\n\r\n";
+        response = "HTTP/1.1 502 Bad Gateway\r\n"
+                  "Content-Type: text/html\r\n"
+                  "Content-Length: 0\r\n"
+                  "\r\n";
+        Logger::error("Отправляю ошибку HTTP ответа для CONNECT");
     }
     
-    send(client_socket_, response.c_str(), response.length(), 0);
+    ssize_t sent = send(client_socket_, response.c_str(), response.length(), 0);
+    if (sent < 0) {
+        Logger::error("Ошибка отправки HTTP ответа: " + std::string(strerror(errno)));
+    } else {
+        Logger::info("HTTP ответ отправлен успешно (" + std::to_string(sent) + " байт)");
+    }
 }
 
 void ProxyHandler::forward_http_request() {
