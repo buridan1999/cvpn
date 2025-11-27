@@ -15,7 +15,7 @@
         "xor_key": 42
     },
     "encryption": {
-        "library_path": "./build/encryption_plugins/xor_encryption.so",
+        "library_path": "./build/encryption_plugins/xor_encryption",
         "algorithm": "XOR",
         "key": "MySecretKey123"
     },

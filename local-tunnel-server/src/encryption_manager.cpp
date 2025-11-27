@@ -22,12 +22,20 @@ bool EncryptionManager::load_encryption(const std::string& library_path,
     // Выгружаем предыдущий алгоритм, если был загружен
     unload_encryption();
     
+    // Добавляем правильное расширение в зависимости от платформы
+    std::string full_library_path = library_path;
+#ifdef _WIN32
+    full_library_path += ".dll";
+#else
+    full_library_path += ".so";
+#endif
+    
 #ifdef _WIN32
     // Загружаем динамическую библиотеку (Windows)
-    library_handle_ = LoadLibraryA(library_path.c_str());
+    library_handle_ = LoadLibraryA(full_library_path.c_str());
     if (!library_handle_) {
         DWORD error = GetLastError();
-        Logger::error("Не удалось загрузить библиотеку шифрования: " + library_path + 
+        Logger::error("Не удалось загрузить библиотеку шифрования: " + full_library_path + 
                      " - Ошибка: " + std::to_string(error));
         return false;
     }
@@ -53,9 +61,9 @@ bool EncryptionManager::load_encryption(const std::string& library_path,
     }
 #else
     // Загружаем динамическую библиотеку (Unix/Linux)
-    library_handle_ = dlopen(library_path.c_str(), RTLD_LAZY);
+    library_handle_ = dlopen(full_library_path.c_str(), RTLD_LAZY);
     if (!library_handle_) {
-        Logger::error("Не удалось загрузить библиотеку шифрования: " + library_path + 
+        Logger::error("Не удалось загрузить библиотеку шифрования: " + full_library_path + 
                      " - " + std::string(dlerror()));
         return false;
     }
@@ -117,7 +125,7 @@ bool EncryptionManager::load_encryption(const std::string& library_path,
     
     Logger::info("Загружен алгоритм шифрования: " + std::string(encryption_->get_name()) + 
                 " v" + std::string(encryption_->get_version()) + 
-                " из " + library_path);
+                " из " + full_library_path);
     
     return true;
 }
