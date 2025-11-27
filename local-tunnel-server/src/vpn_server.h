@@ -13,7 +13,7 @@
 
 class VPNServer {
 public:
-    explicit VPNServer(const std::string& config_file = "config.json");
+    explicit VPNServer(const Config& config);
     ~VPNServer();
 
     // Основные методы

@@ -37,7 +37,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Создание серверов..." << std::endl;
         
         // Создание прокси-сервера (порт 8080)
-        VPNServer proxy_server(config_file);
+        VPNServer proxy_server(config);
         
         // Создание туннель-сервера (порт 8081)
         TunnelServer tunnel_server(config);

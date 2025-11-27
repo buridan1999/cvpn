@@ -23,8 +23,8 @@ std::string get_timestamp() {
 // Статический указатель для обработки сигналов
 VPNServer* VPNServer::instance_ = nullptr;
 
-VPNServer::VPNServer(const std::string& config_file) 
-    : config_(config_file) {
+VPNServer::VPNServer(const Config& config) 
+    : config_(config) {
     
     // Установка обработчика сигналов
     instance_ = this;
