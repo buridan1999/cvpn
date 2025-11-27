@@ -10,7 +10,7 @@
 #include <string>
 
 // Форвард декларация
-class TunnelHandler;
+class ProxyHandler;
 
 class TunnelServer {
 public:
@@ -43,7 +43,7 @@ private:
     SOCKET server_socket_{INVALID_SOCKET};
     std::unique_ptr<thread_type> server_thread_;
     
-    std::vector<std::shared_ptr<TunnelHandler>> tunnels_;
+    std::vector<std::shared_ptr<ProxyHandler>> tunnels_;
     mutable mutex_type tunnels_mutex_;
 };
 

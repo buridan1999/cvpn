@@ -1,5 +1,5 @@
 #include "tunnel_server.h"
-#include "tunnel_handler.h"
+#include "proxy_handler.h"
 #include "logger.h"
 #include "platform_compat.h"
 #include <cstring>
@@ -207,12 +207,12 @@ void TunnelServer::handle_tunnel_connection(SOCKET tunnel_socket,
             return;
         }
 
-        auto handler = std::make_shared<TunnelHandler>(static_cast<int>(tunnel_socket), client_ip, client_port, config_);
+        auto handler = std::make_shared<ProxyHandler>(static_cast<int>(tunnel_socket), client_ip, client_port, config_);
         
         if (handler->start()) {
             tunnels_.push_back(handler);
         } else {
-            Logger::error("Не удалось запустить tunnel обработчик для " + 
+            Logger::error("Не удалось запустить proxy обработчик для " + 
                          client_ip + ":" + std::to_string(client_port));
             close(tunnel_socket);
         }

@@ -2,6 +2,7 @@
 #include "logger.h"
 #include "utils.h"
 #include "platform_compat.h"
+#include "tunnel_handler.h"
 #include <csignal>
 #include <cstring>
 #include <algorithm>
@@ -239,7 +240,7 @@ void VPNServer::handle_client_connection(SOCKET client_socket,
         }
 
         // Создание обработчика для клиента
-        auto handler = std::make_shared<ProxyHandler>(static_cast<int>(client_socket), client_ip, client_port, config_);
+        auto handler = std::make_shared<TunnelHandler>(static_cast<int>(client_socket), client_ip, client_port, config_);
         
         // Запуск обработчика
         if (handler->start()) {
@@ -247,7 +248,7 @@ void VPNServer::handle_client_connection(SOCKET client_socket,
             lock_guard_type<mutex_type> lock(clients_mutex_);
             clients_.push_back(handler);
         } else {
-            Logger::error("Не удалось запустить обработчик для клиента " + 
+            Logger::error("Не удалось запустить tunnel обработчик для клиента " + 
                          client_ip + ":" + std::to_string(client_port));
             close(client_socket);
         }

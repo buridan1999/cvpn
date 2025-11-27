@@ -40,30 +40,30 @@ int main(int argc, char* argv[]) {
         // Определяем режим работы сервера
         Config::ServerMode mode = config.get_server_mode();
         
-        std::unique_ptr<VPNServer> vpn_server;     // Удалённый сервер (порт 8081)
-        std::unique_ptr<TunnelServer> tunnel_server; // Локальный прокси (порт 8080)
+        std::unique_ptr<VPNServer> vpn_server;     // Удалённый VPN сервер (порт 8080)
+        std::unique_ptr<TunnelServer> tunnel_server; // Локальный туннель (порт 8081)
         
         // Создание серверов в зависимости от режима
-        if (mode == Config::ServerMode::BOTH || mode == Config::ServerMode::PROXY_ONLY) {
+        if (mode == Config::ServerMode::BOTH || mode == Config::ServerMode::TUNNEL_ONLY) {
             vpn_server = std::make_unique<VPNServer>(config);    // Удалённый VPN сервер
         }
         
-        if (mode == Config::ServerMode::BOTH || mode == Config::ServerMode::TUNNEL_ONLY) {
-            tunnel_server = std::make_unique<TunnelServer>(config); // Локальный туннель
+        if (mode == Config::ServerMode::BOTH || mode == Config::ServerMode::PROXY_ONLY) {
+            tunnel_server = std::make_unique<TunnelServer>(config); // Локальный туннель (браузер подключается сюда)
         }
         
-        // Запуск VPN сервера (принимает HTTP от браузера)
+        // Запуск VPN сервера (удалённый - принимает зашифрованные соединения)
         if (vpn_server) {
-            std::cout << "Запуск VPN сервера (HTTP прокси)..." << std::endl;
+            std::cout << "Запуск VPN сервера (удалённая часть)..." << std::endl;
             if (!vpn_server->start()) {
                 Logger::error("Не удалось запустить VPN сервер");
                 return 1;
             }
         }
         
-        // Запуск Tunnel сервера (принимает зашифрованные соединения)
+        // Запуск Tunnel сервера (локальный - браузер подключается сюда)
         if (tunnel_server) {
-            std::cout << "Запуск Tunnel сервера (удалённая часть)..." << std::endl;
+            std::cout << "Запуск Tunnel сервера (локальный туннель)..." << std::endl;
             if (!tunnel_server->start()) {
                 Logger::error("Не удалось запустить Tunnel сервер");
                 if (vpn_server) vpn_server->stop();
@@ -72,11 +72,11 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "Серверы запущены:" << std::endl;
-        if (vpn_server) {
-            std::cout << "- VPN Server (браузер подключается сюда): " << config.get_server_host() << ":" << config.get_server_port() << std::endl;
-        }
         if (tunnel_server) {
-            std::cout << "- Tunnel Server (удалённый сервер): " << config.get_tunnel_host() << ":" << config.get_tunnel_port() << std::endl;
+            std::cout << "- Tunnel Server (браузер подключается сюда): " << config.get_tunnel_host() << ":" << config.get_tunnel_port() << std::endl;
+        }
+        if (vpn_server) {
+            std::cout << "- VPN Server (удалённый сервер): " << config.get_server_host() << ":" << config.get_server_port() << std::endl;
         }
         std::cout << "- XOR Key: " << static_cast<int>(config.get_xor_key()) << std::endl;
         std::cout << "Нажмите Ctrl+C для остановки." << std::endl;

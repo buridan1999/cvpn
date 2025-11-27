@@ -227,17 +227,17 @@ bool ProxyHandler::connect_to_tunnel(const std::string& target_host, int target_
     // Подключение к туннельному серверу
     sockaddr_in tunnel_addr{};
     tunnel_addr.sin_family = AF_INET;
-    tunnel_addr.sin_port = htons(config_.get_tunnel_port());
+    tunnel_addr.sin_port = htons(config_.get_server_port());
     
-    if (inet_pton(AF_INET, config_.get_tunnel_host().c_str(), &tunnel_addr.sin_addr) <= 0) {
-        Logger::error("Некорректный IP адрес туннеля: " + config_.get_tunnel_host());
+    if (inet_pton(AF_INET, config_.get_server_host().c_str(), &tunnel_addr.sin_addr) <= 0) {
+        Logger::error("Некорректный IP адрес сервера: " + config_.get_server_host());
         close(tunnel_socket_);
         tunnel_socket_ = -1;
         return false;
     }
 
-    Logger::info("Подключаюсь к туннелю " + config_.get_tunnel_host() + 
-                ":" + std::to_string(config_.get_tunnel_port()));
+    Logger::info("Подключаюсь к серверу " + config_.get_server_host() + 
+                ":" + std::to_string(config_.get_server_port()));
 
     if (connect(tunnel_socket_, reinterpret_cast<sockaddr*>(&tunnel_addr), 
                 sizeof(tunnel_addr)) != 0) {

@@ -8,8 +8,11 @@
 #include <thread>
 #include <mutex>
 #include "config.h"
-#include "proxy_handler.h"
 #include "platform_compat.h"
+#include "windows_threading.h"
+
+// Форвард декларация
+class TunnelHandler;
 
 class VPNServer {
 public:
@@ -38,7 +41,7 @@ private:
     SOCKET server_socket_{INVALID_SOCKET};
     
     // Управление клиентами
-    std::vector<std::shared_ptr<ProxyHandler>> clients_;
+    std::vector<std::shared_ptr<TunnelHandler>> clients_;
     mutable mutex_type clients_mutex_;
     
     // Основной поток сервера
@@ -47,7 +50,7 @@ private:
     // Внутренние методы
     void server_loop();
     void handle_client_connection(SOCKET client_socket, const std::string& client_ip, int client_port);
-    void remove_client(std::shared_ptr<ProxyHandler> handler);
+    void remove_client(std::shared_ptr<TunnelHandler> handler);
     void cleanup_finished_clients();
     
     // Обработка сигналов
