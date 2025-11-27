@@ -104,18 +104,30 @@ void TunnelServer::stop() {
         server_socket_ = INVALID_SOCKET;
     }
 
-    // Ожидание завершения серверного потока
-    if (server_thread_ && server_thread_->joinable()) {
-        server_thread_->join();
+    // Безопасное ожидание завершения серверного потока
+    try {
+        if (server_thread_ && server_thread_->joinable()) {
+            server_thread_->join();
+        }
+    } catch (...) {
+        // Игнорируем ошибки при join
     }
 
     // Закрытие всех туннельных соединений
-    {
+    try {
         lock_guard_type<mutex_type> lock(tunnels_mutex_);
         for (auto& tunnel : tunnels_) {
-            tunnel->stop();
+            try {
+                if (tunnel) {
+                    tunnel->stop();
+                }
+            } catch (...) {
+                // Игнорируем ошибки остановки туннелей
+            }
         }
         tunnels_.clear();
+    } catch (...) {
+        // Игнорируем ошибки очистки туннелей
     }
 
     Logger::info("Tunnel сервер остановлен");

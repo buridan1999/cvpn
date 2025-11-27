@@ -52,18 +52,18 @@ int main(int argc, char* argv[]) {
             tunnel_server = std::make_unique<TunnelServer>(config); // Локальный туннель
         }
         
-        // Запуск удалённого VPN сервера
+        // Запуск VPN сервера (принимает HTTP от браузера)
         if (vpn_server) {
-            std::cout << "Запуск удалённого VPN сервера..." << std::endl;
+            std::cout << "Запуск VPN сервера (HTTP прокси)..." << std::endl;
             if (!vpn_server->start()) {
                 Logger::error("Не удалось запустить VPN сервер");
                 return 1;
             }
         }
         
-        // Запуск локального туннеля
+        // Запуск Tunnel сервера (принимает зашифрованные соединения)
         if (tunnel_server) {
-            std::cout << "Запуск локального туннеля..." << std::endl;
+            std::cout << "Запуск Tunnel сервера (удалённая часть)..." << std::endl;
             if (!tunnel_server->start()) {
                 Logger::error("Не удалось запустить Tunnel сервер");
                 if (vpn_server) vpn_server->stop();
@@ -72,11 +72,11 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "Серверы запущены:" << std::endl;
-        if (tunnel_server) {
-            std::cout << "- Local Tunnel (браузер подключается сюда): " << config.get_tunnel_host() << ":" << config.get_tunnel_port() << std::endl;
-        }
         if (vpn_server) {
-            std::cout << "- Remote VPN Server (удалённый сервер): " << config.get_server_host() << ":" << config.get_server_port() << std::endl;
+            std::cout << "- VPN Server (браузер подключается сюда): " << config.get_server_host() << ":" << config.get_server_port() << std::endl;
+        }
+        if (tunnel_server) {
+            std::cout << "- Tunnel Server (удалённый сервер): " << config.get_tunnel_host() << ":" << config.get_tunnel_port() << std::endl;
         }
         std::cout << "- XOR Key: " << static_cast<int>(config.get_xor_key()) << std::endl;
         std::cout << "Нажмите Ctrl+C для остановки." << std::endl;

@@ -121,18 +121,30 @@ void VPNServer::stop() {
         server_socket_ = INVALID_SOCKET;
     }
 
-    // Ожидание завершения серверного потока
-    if (server_thread_ && server_thread_->joinable()) {
-        server_thread_->join();
+    // Безопасное ожидание завершения серверного потока
+    try {
+        if (server_thread_ && server_thread_->joinable()) {
+            server_thread_->join();
+        }
+    } catch (...) {
+        // Игнорируем ошибки при join
     }
 
     // Закрытие всех клиентских соединений
-    {
+    try {
         lock_guard_type<mutex_type> lock(clients_mutex_);
         for (auto& client : clients_) {
-            client->stop();
+            try {
+                if (client) {
+                    client->stop();
+                }
+            } catch (...) {
+                // Игнорируем ошибки остановки клиентов
+            }
         }
         clients_.clear();
+    } catch (...) {
+        // Игнорируем ошибки очистки клиентов
     }
 
     Logger::info("VPN сервер остановлен");

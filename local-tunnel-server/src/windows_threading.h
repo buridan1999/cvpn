@@ -112,7 +112,7 @@ public:
     
     ~thread() {
         if (handle_ && joinable()) {
-            std::terminate(); // std::thread behavior
+            detach(); // Просто отсоединяем поток вместо terminate
         }
     }
     
@@ -128,7 +128,7 @@ public:
     thread& operator=(thread&& other) noexcept {
         if (this != &other) {
             if (handle_ && joinable()) {
-                std::terminate();
+                detach(); // Отсоединяем старый поток вместо terminate
             }
             handle_ = other.handle_;
             thread_id_ = other.thread_id_;

@@ -4,14 +4,14 @@
     },
     "server": {
         "host": "0.0.0.0",
-        "port": 8081,
+        "port": 8080,
         "max_connections": 100,
         "buffer_size": 4096,
         "timeout": 30
     },
     "tunnel": {
         "host": "127.0.0.1",
-        "port": 8080,
+        "port": 8081,
         "xor_key": 42
     },
     "encryption": {
