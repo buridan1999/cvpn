@@ -107,13 +107,13 @@ if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
 else()
     # Настройки для Unix/Linux
     set_target_properties(xor_encryption PROPERTIES
-        PREFIX "lib"
+        PREFIX ""
         OUTPUT_NAME "xor_encryption"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/encryption_plugins"
     )
     
     set_target_properties(caesar_encryption PROPERTIES
-        PREFIX "lib"
+        PREFIX ""
         OUTPUT_NAME "caesar_encryption"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/encryption_plugins"
     )
