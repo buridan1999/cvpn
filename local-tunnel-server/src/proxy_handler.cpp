@@ -594,6 +594,7 @@ bool ProxyHandler::parse_http_request(const std::string& request_line, std::stri
     std::string line;
     char buffer[1024];
     int pos = 0;
+    int content_length = 0;
     
     while (true) {
         pos = 0;
@@ -626,8 +627,52 @@ bool ProxyHandler::parse_http_request(const std::string& request_line, std::stri
                 original_http_request_ += "Host: " + target_host + "\r\n";
             } else {
                 original_http_request_ += line + "\r\n";
+                
+                // Ищем Content-Length для POST запросов
+                if (line.find("Content-Length:") == 0) {
+                    size_t colon_pos = line.find(':');
+                    if (colon_pos != std::string::npos) {
+                        std::string length_str = line.substr(colon_pos + 1);
+                        // Убираем пробелы
+                        length_str.erase(0, length_str.find_first_not_of(" \t"));
+                        length_str.erase(length_str.find_last_not_of(" \t\r\n") + 1);
+                        try {
+                            content_length = std::stoi(length_str);
+                            if (content_length < 0) content_length = 0;
+                        } catch (const std::exception& e) {
+                            Logger::error("Неверный Content-Length: " + length_str);
+                            content_length = 0;
+                        }
+                    }
+                }
             }
         }
+    }
+    
+    // Если есть тело запроса (POST), читаем его
+    if (content_length > 0 && method == "POST") {
+        // Ограничиваем размер тела для безопасности
+        if (content_length > 1024 * 1024) {  // Максимум 1MB
+            Logger::error("Тело POST запроса слишком большое: " + std::to_string(content_length));
+            return false;
+        }
+        
+        std::vector<char> body(content_length + 1);  // +1 для null terminator
+        ssize_t total_read = 0;
+        
+        while (total_read < content_length) {
+            ssize_t bytes_read = recv(client_socket_, body.data() + total_read, 
+                                    content_length - total_read, 0);
+            if (bytes_read <= 0) {
+                Logger::error("Ошибка при чтении тела POST запроса");
+                return false;
+            }
+            total_read += bytes_read;
+        }
+        
+        // Добавляем тело к запросу (без null terminator)
+        original_http_request_ += std::string(body.data(), content_length);
+        Logger::info("Прочитано тело POST запроса: " + std::to_string(content_length) + " байт");
     }
     
     return true;
