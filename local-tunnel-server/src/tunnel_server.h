@@ -9,14 +9,17 @@
 #include <vector>
 #include <string>
 
-// Форвард декларация
+// Форвард декларации
 class ProxyHandler;
+class Socks5Handler;
 
 class TunnelServer {
 public:
     struct TunnelStatus {
         bool running;
         int active_tunnels;
+        int http_tunnels;
+        int socks5_tunnels;
         std::string host;
         int port;
     };
@@ -33,6 +36,7 @@ private:
     void server_loop();
     void handle_tunnel_connection(SOCKET tunnel_socket, const std::string& client_ip, int client_port);
     void cleanup_finished_tunnels();
+    void route_to_handler(SOCKET tunnel_socket, const std::string& client_ip, int client_port, uint8_t first_byte);
 
     static void signal_handler(int signal);
     static TunnelServer* instance_;
@@ -43,7 +47,8 @@ private:
     SOCKET server_socket_{INVALID_SOCKET};
     std::unique_ptr<thread_type> server_thread_;
     
-    std::vector<std::shared_ptr<ProxyHandler>> tunnels_;
+    std::vector<std::shared_ptr<ProxyHandler>> http_tunnels_;
+    std::vector<std::shared_ptr<Socks5Handler>> socks5_tunnels_;
     mutable mutex_type tunnels_mutex_;
 };
 

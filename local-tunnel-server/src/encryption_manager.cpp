@@ -21,13 +21,19 @@ bool EncryptionManager::load_encryption(const std::string& library_path,
                                        size_t key_size) {
     // Выгружаем предыдущий алгоритм, если был загружен
     unload_encryption();
+
+    Logger::info("Попытка загрузки библиотеки шифрования: " + library_path);
     
-    // Добавляем правильное расширение в зависимости от платформы
+    // Добавляем правильное расширение в зависимости от платформы, если его нет
     std::string full_library_path = library_path;
 #ifdef _WIN32
-    full_library_path += ".dll";
+    if (full_library_path.find(".dll") == std::string::npos) {
+        full_library_path += ".dll";
+    }
 #else
-    full_library_path += ".so";
+    if (full_library_path.find(".so") == std::string::npos) {
+        full_library_path += ".so";
+    }
 #endif
     
 #ifdef _WIN32

@@ -26,6 +26,7 @@ set(SOURCES
     src/vpn_server.cpp
     src/tunnel_server.cpp
     src/proxy_handler.cpp
+    src/socks5_handler.cpp
     src/tunnel_handler.cpp
     src/encryption_manager.cpp
     src/config.cpp
@@ -38,6 +39,7 @@ set(HEADERS
     src/vpn_server.h
     src/tunnel_server.h
     src/proxy_handler.h
+    src/socks5_handler.h
     src/tunnel_handler.h
     src/encryption_interface.h
     src/encryption_manager.h

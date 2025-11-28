@@ -15,7 +15,7 @@ public:
     
     /**
      * Загрузка алгоритма шифрования из динамической библиотеки
-     * @param library_path Путь к библиотеке (например, "./libxor_encryption.so")
+     * @param library_path Путь к библиотеке (например, "./libxor_encryption")
      * @param key Ключ для инициализации
      * @param key_size Размер ключа
      * @return true при успешной загрузке

@@ -1,5 +1,6 @@
 #include "tunnel_server.h"
 #include "proxy_handler.h"
+#include "socks5_handler.h"
 #include "logger.h"
 #include "platform_compat.h"
 #include <cstring>
@@ -116,7 +117,9 @@ void TunnelServer::stop() {
     // Закрытие всех туннельных соединений
     try {
         lock_guard_type<mutex_type> lock(tunnels_mutex_);
-        for (auto& tunnel : tunnels_) {
+        
+        // Остановка HTTP туннелей
+        for (auto& tunnel : http_tunnels_) {
             try {
                 if (tunnel) {
                     tunnel->stop();
@@ -125,7 +128,20 @@ void TunnelServer::stop() {
                 // Игнорируем ошибки остановки туннелей
             }
         }
-        tunnels_.clear();
+        http_tunnels_.clear();
+        
+        // Остановка SOCKS5 туннелей
+        for (auto& tunnel : socks5_tunnels_) {
+            try {
+                if (tunnel) {
+                    tunnel->stop();
+                }
+            } catch (...) {
+                // Игнорируем ошибки остановки туннелей
+            }
+        }
+        socks5_tunnels_.clear();
+        
     } catch (...) {
         // Игнорируем ошибки очистки туннелей
     }
@@ -199,43 +215,103 @@ void TunnelServer::handle_tunnel_connection(SOCKET tunnel_socket,
                                           const std::string& client_ip, 
                                           int client_port) {
     try {
-        lock_guard_type<mutex_type> lock(tunnels_mutex_);
-        if (static_cast<int>(tunnels_.size()) >= config_.get_max_connections()) {
-            Logger::warning("Достигнут лимит tunnel соединений, отклонение " + 
-                           client_ip + ":" + std::to_string(client_port));
+        // Читаем первый байт для определения протокола
+        uint8_t first_byte;
+        ssize_t received = recv(tunnel_socket, &first_byte, 1, MSG_PEEK);
+        
+        if (received <= 0) {
+            Logger::error("Не удалось прочитать первый байт от " + 
+                         client_ip + ":" + std::to_string(client_port));
             close(tunnel_socket);
             return;
         }
-
-        auto handler = std::make_shared<ProxyHandler>(static_cast<int>(tunnel_socket), client_ip, client_port, config_);
         
-        if (handler->start()) {
-            tunnels_.push_back(handler);
-        } else {
-            Logger::error("Не удалось запустить proxy обработчик для " + 
-                         client_ip + ":" + std::to_string(client_port));
-            close(tunnel_socket);
-        }
+        route_to_handler(tunnel_socket, client_ip, client_port, first_byte);
+        cleanup_finished_tunnels();
+        
     } catch (const std::exception& e) {
         Logger::error("Ошибка обработки tunnel соединения: " + std::string(e.what()));
         close(tunnel_socket);
     }
 }
 
+void TunnelServer::route_to_handler(SOCKET tunnel_socket, const std::string& client_ip, 
+                                  int client_port, uint8_t first_byte) {
+    lock_guard_type<mutex_type> lock(tunnels_mutex_);
+    
+    int total_tunnels = static_cast<int>(http_tunnels_.size() + socks5_tunnels_.size());
+    if (total_tunnels >= config_.get_max_connections()) {
+        Logger::warning("Достигнут лимит tunnel соединений, отклонение " + 
+                       client_ip + ":" + std::to_string(client_port));
+        close(tunnel_socket);
+        return;
+    }
+    
+    // Определяем протокол по первому байту
+    if (first_byte == 0x05) {
+        // SOCKS5 протокол
+        Logger::info("Обнаружен SOCKS5 клиент от " + client_ip + ":" + std::to_string(client_port));
+        
+        auto handler = std::make_shared<Socks5Handler>(static_cast<int>(tunnel_socket), client_ip, client_port, config_);
+        
+        if (handler->start()) {
+            socks5_tunnels_.push_back(handler);
+            Logger::info("SOCKS5 обработчик запущен для " + client_ip + ":" + std::to_string(client_port));
+        } else {
+            Logger::error("Не удалось запустить SOCKS5 обработчик для " + 
+                         client_ip + ":" + std::to_string(client_port));
+            close(tunnel_socket);
+        }
+        
+    } else {
+        // HTTP протокол (предполагаем, что всё остальное - HTTP)
+        Logger::info("Обнаружен HTTP клиент от " + client_ip + ":" + std::to_string(client_port));
+        
+        auto handler = std::make_shared<ProxyHandler>(static_cast<int>(tunnel_socket), client_ip, client_port, config_);
+        
+        if (handler->start()) {
+            http_tunnels_.push_back(handler);
+            Logger::info("HTTP обработчик запущен для " + client_ip + ":" + std::to_string(client_port));
+        } else {
+            Logger::error("Не удалось запустить HTTP обработчик для " + 
+                         client_ip + ":" + std::to_string(client_port));
+            close(tunnel_socket);
+        }
+    }
+}
+
 void TunnelServer::cleanup_finished_tunnels() {
     lock_guard_type<mutex_type> lock(tunnels_mutex_);
     
-    auto it = tunnels_.begin();
-    while (it != tunnels_.end()) {
-        if (!(*it)->is_running()) {
+    // Очистка HTTP туннелей
+    auto http_it = http_tunnels_.begin();
+    while (http_it != http_tunnels_.end()) {
+        if (!(*http_it)->is_running()) {
             try {
-                (*it)->stop();
-                it = tunnels_.erase(it);
+                (*http_it)->stop();
+                http_it = http_tunnels_.erase(http_it);
             } catch (...) {
-                it = tunnels_.erase(it);
+                http_it = http_tunnels_.erase(http_it);
             }
         } else {
-            ++it;
+            ++http_it;
+        }
+    }
+    
+    // Очистка SOCKS5 туннелей
+    auto socks5_it = socks5_tunnels_.begin();
+    while (socks5_it != socks5_tunnels_.end()) {
+        if (!(*socks5_it) || !(*socks5_it)->is_running()) {
+            try {
+                if (*socks5_it) {
+                    (*socks5_it)->stop();
+                }
+                socks5_it = socks5_tunnels_.erase(socks5_it);
+            } catch (...) {
+                socks5_it = socks5_tunnels_.erase(socks5_it);
+            }
+        } else {
+            ++socks5_it;
         }
     }
 }
@@ -243,9 +319,14 @@ void TunnelServer::cleanup_finished_tunnels() {
 TunnelServer::TunnelStatus TunnelServer::get_status() const {
     lock_guard_type<mutex_type> lock(tunnels_mutex_);
     
+    int http_count = static_cast<int>(http_tunnels_.size());
+    int socks5_count = static_cast<int>(socks5_tunnels_.size());
+    
     return TunnelStatus{
         running_.load(),
-        static_cast<int>(tunnels_.size()),
+        http_count + socks5_count,
+        http_count,
+        socks5_count,
         config_.get_tunnel_host(),
         config_.get_tunnel_port()
     };

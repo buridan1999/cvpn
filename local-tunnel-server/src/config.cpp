@@ -26,7 +26,7 @@ void Config::set_defaults() {
     xor_key_ = 42;
     
     // Настройки шифрования по умолчанию
-    encryption_library_ = "./encryption_plugins/libxor_encryption.so";
+    encryption_library_ = "./build/encryption_plugins/xor_encryption";
     encryption_algorithm_ = "XOR";
     encryption_key_ = "DefaultKey123";
     
