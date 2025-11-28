@@ -1,0 +1,79 @@
+# Git attributes file
+# Настройки окончаний строк для разных типов файлов
+
+# По умолчанию - автоматическое определение
+* text=auto
+
+# Shell scripts должны всегда иметь LF окончания (Unix)
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Batch files должны всегда иметь CRLF окончания (Windows)  
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Исходный код C/C++ - LF окончания
+*.c text eol=lf
+*.cpp text eol=lf  
+*.cc text eol=lf
+*.cxx text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.hxx text eol=lf
+
+# CMake файлы - LF окончания
+CMakeLists.txt text eol=lf
+*.cmake text eol=lf
+
+# Конфигурационные файлы - LF окончания
+*.json text eol=lf
+*.xml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.conf text eol=lf
+*.config text eol=lf
+
+# Документация - LF окончания
+*.md text eol=lf
+*.txt text eol=lf
+*.rst text eol=lf
+
+# Python файлы - LF окончания
+*.py text eol=lf
+
+# Dockerfile - LF окончания
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+
+# Makefile - LF окончания  
+Makefile text eol=lf
+*.mk text eol=lf
+
+# Git файлы - LF окончания
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Бинарные файлы - не обрабатывать
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.a binary
+*.lib binary
+*.o binary
+*.obj binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.bz2 binary
+*.7z binary
+*.rar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.ico binary
+*.pdf binary
