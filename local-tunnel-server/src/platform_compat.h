@@ -31,7 +31,9 @@
     
     // Windows socket compatibility
     typedef int socklen_t;
+    typedef long long ssize_t;
     #define MSG_WAITALL 0x8
+    #define MSG_PEEK 0x2
     #define SHUT_RDWR SD_BOTH
     #define close(fd) closesocket(fd)
     

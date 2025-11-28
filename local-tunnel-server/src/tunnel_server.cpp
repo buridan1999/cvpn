@@ -217,7 +217,7 @@ void TunnelServer::handle_tunnel_connection(SOCKET tunnel_socket,
     try {
         // Читаем первый байт для определения протокола
         uint8_t first_byte;
-        ssize_t received = recv(tunnel_socket, &first_byte, 1, MSG_PEEK);
+        ssize_t received = recv(tunnel_socket, reinterpret_cast<char*>(&first_byte), 1, MSG_PEEK);
         
         if (received <= 0) {
             Logger::error("Не удалось прочитать первый байт от " + 

@@ -158,6 +158,10 @@ public:
             thread_id_ = 0;
         }
     }
+    
+    DWORD get_id() const {
+        return thread_id_;
+    }
 };
 
 // make_unique helper для thread'ов
@@ -167,6 +171,15 @@ std::unique_ptr<thread> make_unique_thread(Args&&... args) {
 }
 
 } // namespace threading
+
+// Поддержка std::this_thread для Windows
+namespace std {
+    namespace this_thread {
+        inline DWORD get_id() {
+            return GetCurrentThreadId();
+        }
+    }
+}
 
 // Типы для использования в коде
 using thread_type = threading::thread;
