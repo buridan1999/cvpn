@@ -21,7 +21,7 @@ cat > config_server.json << 'EOF'
     },
     "tunnel": {
         "host": "127.0.0.1",
-        "port": 8084
+        "port": 8081
     },
     "encryption": {
         "algorithm": "xor",

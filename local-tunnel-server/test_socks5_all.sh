@@ -5,7 +5,7 @@ echo "=== Тест SOCKS5 Proxy ==="
 
 # Настройки
 PROXY_HOST="127.0.0.1"
-PROXY_PORT="8084"
+PROXY_PORT="8081"
 TEST_URL="http://httpbin.org/ip"
 
 echo "Прокси: $PROXY_HOST:$PROXY_PORT"
