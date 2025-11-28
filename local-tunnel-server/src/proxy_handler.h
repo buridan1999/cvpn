@@ -6,6 +6,9 @@
 #include <atomic>
 #include <thread>
 #include "config.h"
+#include "encryption_manager.h"
+#include "platform_compat.h"
+#include "windows_threading.h"
 
 class ProxyHandler {
 public:
@@ -28,9 +31,9 @@ private:
     bool is_http_connect_{false};
     std::string original_http_request_;
     
-    // Сокеты
-    int client_socket_{-1};
-    int target_socket_{-1};
+    // Сокеты (используем кросс-платформенный тип)
+    SOCKET client_socket_{INVALID_SOCKET};
+    SOCKET tunnel_socket_{INVALID_SOCKET}; // Изменено: подключаемся к туннелю вместо цели
     
     // Информация о клиенте
     std::string client_ip_;
@@ -40,7 +43,7 @@ private:
     const Config& config_;
     
     // Потоки для передачи данных
-    std::unique_ptr<std::thread> handler_thread_;
+    std::unique_ptr<thread_type> handler_thread_;
     
     // Внутренние методы
     void handle();
@@ -48,14 +51,23 @@ private:
     bool parse_http_connect(const std::string& connect_line, std::string& target_host, int& target_port);
     bool parse_http_request(const std::string& request_line, std::string& target_host, int& target_port);
     bool parse_binary_protocol_from_buffer(char* buffer, int buffer_size, std::string& target_host, int& target_port);
-    bool connect_to_target(const std::string& host, int port);
+    bool connect_to_tunnel(const std::string& target_host, int target_port);
+    void send_mutated_target_info(const std::string& target_host, int target_port);
+    void encrypt(unsigned char* data, size_t size);
+    
+    // Менеджер шифрования
+    EncryptionManager encryption_manager_;
+    
+    // Сохранённая информация о цели
+    std::string target_host_;
+    int target_port_;
     void send_connection_response(bool success);
     void send_http_response(bool success);
     void forward_http_request();
     void start_data_transfer();
-    void transfer_data(int source_socket, int destination_socket, 
+    void transfer_data(SOCKET source_socket, SOCKET destination_socket, 
                       const std::string& direction);
-    ssize_t recv_exact(int socket, void* buffer, size_t size);
+    ssize_t recv_exact(SOCKET socket, void* buffer, size_t size);
     
     // Запрет копирования
     ProxyHandler(const ProxyHandler&) = delete;

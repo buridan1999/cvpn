@@ -5,14 +5,31 @@
 
 class Config {
 public:
+    enum class ServerMode {
+        BOTH,       // Запуск и VPNServer (удалённый на 8080), и TunnelServer (локальный на 8081) 
+        PROXY_ONLY, // Запуск только VPNServer (удалённый сервер на 8080)
+        TUNNEL_ONLY // Запуск только TunnelServer (локальный туннель на 8081 для браузера)
+    };
+    
     explicit Config(const std::string& config_file = "config.json");
     
     // Геттеры для серверных настроек
+    ServerMode get_server_mode() const { return server_mode_; }
     std::string get_server_host() const { return server_host_; }
     int get_server_port() const { return server_port_; }
     int get_max_connections() const { return max_connections_; }
     int get_buffer_size() const { return buffer_size_; }
     int get_timeout() const { return timeout_; }
+    
+    // Геттеры для туннельных настроек
+    std::string get_tunnel_host() const { return tunnel_host_; }
+    int get_tunnel_port() const { return tunnel_port_; }
+    unsigned char get_xor_key() const { return xor_key_; }
+    
+    // Геттеры для настроек шифрования
+    std::string get_encryption_library() const { return encryption_library_; }
+    std::string get_encryption_algorithm() const { return encryption_algorithm_; }
+    std::string get_encryption_key() const { return encryption_key_; }
     
     // Геттеры для настроек логирования
     std::string get_log_level() const { return log_level_; }
@@ -30,12 +47,25 @@ public:
 private:
     std::string config_file_;
     
+    // Режим работы сервера
+    ServerMode server_mode_;
+    
     // Серверные настройки
     std::string server_host_;
     int server_port_;
     int max_connections_;
     int buffer_size_;
     int timeout_;
+    
+    // Туннельные настройки
+    std::string tunnel_host_;
+    int tunnel_port_;
+    unsigned char xor_key_;
+    
+    // Настройки шифрования
+    std::string encryption_library_;
+    std::string encryption_algorithm_;
+    std::string encryption_key_;
     
     // Настройки логирования
     std::string log_level_;

@@ -1,14 +1,19 @@
 #include <iostream>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#include "src/platform_compat.h"
 #include <cstring>
 #include <cstdint>
 
 int main(int argc, char* argv[]) {
+    // Инициализация сокетов для Windows
+    if (!init_sockets()) {
+        std::cerr << "Ошибка инициализации сокетов!" << std::endl;
+        return 1;
+    }
+    
     if (argc != 4) {
         std::cout << "Использование: " << argv[0] << " <vpn_server_ip> <vpn_server_port> <target_host:target_port>" << std::endl;
         std::cout << "Пример: " << argv[0] << " 127.0.0.1 8080 google.com:80" << std::endl;
+        cleanup_sockets();
         return 1;
     }
     
@@ -20,6 +25,7 @@ int main(int argc, char* argv[]) {
     size_t colon_pos = target_address.find(':');
     if (colon_pos == std::string::npos) {
         std::cerr << "Некорректный формат целевого адреса" << std::endl;
+        cleanup_sockets();
         return 1;
     }
     
@@ -27,9 +33,10 @@ int main(int argc, char* argv[]) {
     int target_port = std::atoi(target_address.substr(colon_pos + 1).c_str());
     
     // Создание сокета
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        std::cerr << "Не удалось создать сокет" << std::endl;
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == INVALID_SOCKET) {
+        int error = get_last_socket_error();
+        std::cerr << "Не удалось создать сокет: " << error << std::endl;
         return 1;
     }
     
@@ -37,10 +44,11 @@ int main(int argc, char* argv[]) {
     sockaddr_in vpn_addr{};
     vpn_addr.sin_family = AF_INET;
     vpn_addr.sin_port = htons(vpn_port);
-    inet_pton(AF_INET, vpn_host.c_str(), &vpn_addr.sin_addr);
+    inet_pton_compat(AF_INET, vpn_host.c_str(), &vpn_addr.sin_addr);
     
-    if (connect(sock, reinterpret_cast<sockaddr*>(&vpn_addr), sizeof(vpn_addr)) < 0) {
-        std::cerr << "Не удалось подключиться к VPN серверу" << std::endl;
+    if (connect(sock, reinterpret_cast<sockaddr*>(&vpn_addr), sizeof(vpn_addr)) != 0) {
+        int error = get_last_socket_error();
+        std::cerr << "Не удалось подключиться к VPN серверу: " << error << std::endl;
         close(sock);
         return 1;
     }
@@ -52,7 +60,7 @@ int main(int argc, char* argv[]) {
     uint16_t port_net = htons(target_port);
     
     // Отправка длины хоста
-    if (send(sock, &host_len, sizeof(host_len), 0) < 0) {
+    if (send(sock, reinterpret_cast<const char*>(&host_len), sizeof(host_len), 0) < 0) {
         std::cerr << "Ошибка при отправке длины хоста" << std::endl;
         close(sock);
         return 1;
@@ -66,7 +74,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Отправка порта
-    if (send(sock, &port_net, sizeof(port_net), 0) < 0) {
+    if (send(sock, reinterpret_cast<const char*>(&port_net), sizeof(port_net), 0) < 0) {
         std::cerr << "Ошибка при отправке порта" << std::endl;
         close(sock);
         return 1;
@@ -74,7 +82,7 @@ int main(int argc, char* argv[]) {
     
     // Получение ответа от сервера
     uint8_t response;
-    if (recv(sock, &response, sizeof(response), 0) <= 0) {
+    if (recv(sock, reinterpret_cast<char*>(&response), sizeof(response), 0) <= 0) {
         std::cerr << "Ошибка при получении ответа от сервера" << std::endl;
         close(sock);
         return 1;
@@ -107,5 +115,6 @@ int main(int argc, char* argv[]) {
     }
     
     close(sock);
+    cleanup_sockets();
     return 0;
 }

@@ -1,0 +1,22 @@
+# Dockerfile для кросс-компиляции Windows версии
+FROM ubuntu:22.04
+
+# Установка необходимых пакетов
+RUN apt update && apt install -y \
+    mingw-w64 \
+    cmake \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создание рабочей директории
+WORKDIR /workspace
+
+# Копирование исходного кода
+COPY . .
+
+# Сборка Windows версии
+RUN ./build_windows_cross.sh
+
+# Настройка entrypoint
+CMD ["ls", "-la", "build-windows/"]

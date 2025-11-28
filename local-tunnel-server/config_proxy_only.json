@@ -1,6 +1,6 @@
 {
     "general": {
-        "server_mode": "both"
+        "server_mode": "proxy_only"
     },
     "server": {
         "host": "0.0.0.0",
@@ -11,7 +11,7 @@
     },
     "tunnel": {
         "host": "127.0.0.1",
-        "port": 8084,
+        "port": 8081,
         "xor_key": 42
     },
     "encryption": {
