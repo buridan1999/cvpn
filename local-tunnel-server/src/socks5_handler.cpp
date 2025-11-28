@@ -1,13 +1,16 @@
 #include "socks5_handler.h"
 #include "logger.h"
 #include "utils.h"
+#include "platform_compat.h"
 #include <cstring>
+#include <thread>
+
+#ifndef _WIN32
 #include <cerrno>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
-#include <thread>
-#include <unistd.h>
+#endif
 
 Socks5Handler::Socks5Handler(int client_socket, const std::string& client_ip,
                            int client_port, const Config& config)
@@ -116,7 +119,7 @@ bool Socks5Handler::handle_handshake() {
     // Читаем запрос аутентификации: [VERSION][NMETHODS][METHODS...]
     uint8_t buffer[257]; // Максимум 1 + 1 + 255
     
-    ssize_t received = recv(client_socket_, buffer, 2, 0);
+    ssize_t received = recv(client_socket_, reinterpret_cast<char*>(buffer), 2, 0);
     if (received != 2) {
         Logger::error("Неверный размер SOCKS5 handshake");
         return false;
@@ -136,7 +139,7 @@ bool Socks5Handler::handle_handshake() {
     }
     
     // Читаем методы аутентификации
-    received = recv(client_socket_, buffer, nmethods, 0);
+    received = recv(client_socket_, reinterpret_cast<char*>(buffer), nmethods, 0);
     if (received != nmethods) {
         Logger::error("Не удалось прочитать методы аутентификации");
         return false;
@@ -154,7 +157,7 @@ bool Socks5Handler::handle_handshake() {
     // Отправляем ответ: [VERSION][METHOD]
     uint8_t auth_method = no_auth_found ? SOCKS5_NO_AUTH : 0xFF;
     uint8_t response[2] = {SOCKS5_VERSION, auth_method};
-    ssize_t sent = send(client_socket_, response, 2, 0);
+    ssize_t sent = send(client_socket_, reinterpret_cast<const char*>(response), 2, 0);
     
     if (sent != 2 || !no_auth_found) {
         Logger::error("SOCKS5 аутентификация отклонена");
@@ -169,7 +172,7 @@ bool Socks5Handler::handle_connect_request(std::string& target_host, int& target
     // Читаем запрос: [VER][CMD][RSV][ATYP][DST.ADDR][DST.PORT]
     uint8_t buffer[512];
     
-    ssize_t received = recv(client_socket_, buffer, 4, 0);
+    ssize_t received = recv(client_socket_, reinterpret_cast<char*>(buffer), 4, 0);
     if (received != 4) {
         Logger::error("Неверный размер SOCKS5 connect request");
         return false;
@@ -192,7 +195,7 @@ bool Socks5Handler::handle_connect_request(std::string& target_host, int& target
     // Читаем адрес назначения
     if (atyp == SOCKS5_ATYP_IPV4) {
         // IPv4: 4 байта IP + 2 байта порт
-        received = recv(client_socket_, buffer, 6, 0);
+        received = recv(client_socket_, reinterpret_cast<char*>(buffer), 6, 0);
         if (received != 6) {
             Logger::error("Не удалось прочитать IPv4 адрес");
             return false;
@@ -205,7 +208,7 @@ bool Socks5Handler::handle_connect_request(std::string& target_host, int& target
         
     } else if (atyp == SOCKS5_ATYP_DOMAIN) {
         // Домен: 1 байт длина + домен + 2 байта порт
-        received = recv(client_socket_, buffer, 1, 0);
+        received = recv(client_socket_, reinterpret_cast<char*>(buffer), 1, 0);
         if (received != 1) {
             Logger::error("Не удалось прочитать длину домена");
             return false;
@@ -217,7 +220,7 @@ bool Socks5Handler::handle_connect_request(std::string& target_host, int& target
             return false;
         }
         
-        received = recv(client_socket_, buffer, domain_len + 2, 0);
+        received = recv(client_socket_, reinterpret_cast<char*>(buffer), domain_len + 2, 0);
         if (received != domain_len + 2) {
             Logger::error("Не удалось прочитать доменное имя и порт");
             return false;
@@ -272,7 +275,7 @@ bool Socks5Handler::connect_to_tunnel(const std::string& target_host, int target
     // Шифруем длину хоста
     encryption_manager_.encrypt(reinterpret_cast<unsigned char*>(&host_len_be), sizeof(host_len_be));
     
-    if (send(tunnel_socket_, &host_len_be, sizeof(host_len_be), 0) != sizeof(host_len_be)) {
+    if (send(tunnel_socket_, reinterpret_cast<const char*>(&host_len_be), sizeof(host_len_be), 0) != sizeof(host_len_be)) {
         Logger::error("Не удалось отправить длину хоста");
         return false;
     }
@@ -289,7 +292,7 @@ bool Socks5Handler::connect_to_tunnel(const std::string& target_host, int target
     // Шифруем и отправляем порт
     encryption_manager_.encrypt(reinterpret_cast<unsigned char*>(&port_be), sizeof(port_be));
     
-    if (send(tunnel_socket_, &port_be, sizeof(port_be), 0) != sizeof(port_be)) {
+    if (send(tunnel_socket_, reinterpret_cast<const char*>(&port_be), sizeof(port_be), 0) != sizeof(port_be)) {
         Logger::error("Не удалось отправить порт");
         return false;
     }
@@ -314,7 +317,7 @@ void Socks5Handler::send_socks5_response(uint8_t reply_code, const std::string& 
     uint16_t port_be = htons(bind_port);
     memcpy(&response[8], &port_be, 2);
     
-    ssize_t sent = send(client_socket_, response, 10, 0);
+    ssize_t sent = send(client_socket_, reinterpret_cast<const char*>(response), 10, 0);
     if (sent != 10) {
         Logger::error("Не удалось отправить SOCKS5 ответ");
     } else {
